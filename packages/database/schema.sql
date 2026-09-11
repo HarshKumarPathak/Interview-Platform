@@ -1,14 +1,23 @@
 -- PostgreSQL domain model for the interview platform.
--- This migration is intentionally provider-neutral; the application layer can use
--- Prisma, SQLAlchemy, or another typed ORM without changing the domain boundaries.
+-- Authentication, candidate context, interviews and evaluations are separate
+-- so the interview engine can evolve independently.
 
 create extension if not exists pgcrypto;
 
 create type interview_status as enum ('draft', 'ready', 'in_progress', 'completed', 'evaluating', 'evaluated', 'failed');
 create type difficulty_level as enum ('easy', 'adaptive', 'hard');
 
+create table if not exists users (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,
+  password_hash text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists candidates (
   id uuid primary key default gen_random_uuid(),
+  user_id uuid unique references users(id) on delete set null,
   email text not null unique,
   display_name text not null,
   headline text,
