@@ -21,14 +21,35 @@ export async function POST(request: Request) {
 
     const result = await query<{ id: string; status: string }>(
       `insert into interviews (candidate_id, type, difficulty, duration_minutes, language, panel_size, status)
-       values ($1, $2, $3::difficulty_level, $4, $5, $6, 'ready')
-       returning id, status`,
+       values ($1, $2, $3::difficulty_level, $4, $5, $6, 'ready') returning id, status`,
       [candidateId, type, difficulty, durationMinutes, language, panelSize],
     );
-
     return NextResponse.json({ interview: result.rows[0] }, { status: 201 });
   } catch (error) {
     console.error("interview create failed", error);
+    return NextResponse.json({ error: "Database is unavailable" }, { status: 503 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json();
+    const interviewId = String(body.interviewId ?? "");
+    const status = String(body.status ?? "");
+    const allowedStatus = new Set(["in_progress", "completed", "evaluating", "failed"]);
+    if (!interviewId || !allowedStatus.has(status)) return NextResponse.json({ error: "Invalid update" }, { status: 400 });
+
+    const result = await query<{ id: string; status: string }>(
+      `update interviews set status = $2::interview_status,
+         started_at = case when $2 = 'in_progress' and started_at is null then now() else started_at end,
+         completed_at = case when $2 = 'completed' then now() else completed_at end
+       where id = $1 returning id, status`,
+      [interviewId, status],
+    );
+    if (!result.rows[0]) return NextResponse.json({ error: "Interview not found" }, { status: 404 });
+    return NextResponse.json({ interview: result.rows[0] });
+  } catch (error) {
+    console.error("interview update failed", error);
     return NextResponse.json({ error: "Database is unavailable" }, { status: 503 });
   }
 }
@@ -37,7 +58,6 @@ export async function GET(request: Request) {
   try {
     const candidateId = new URL(request.url).searchParams.get("candidateId");
     if (!candidateId) return NextResponse.json({ error: "candidateId is required" }, { status: 400 });
-
     const result = await query(
       `select id, type, difficulty, duration_minutes, language, panel_size, status, started_at, completed_at, created_at
        from interviews where candidate_id = $1 order by created_at desc limit 50`,
