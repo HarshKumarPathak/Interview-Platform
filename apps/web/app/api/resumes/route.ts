@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
 import { query } from "@interview-platform/database";
 import { getSession } from "../../../lib/auth";
+import { parseResumeText } from "../../../lib/resume-parser";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(["application/pdf", "text/plain"]);
 
 function extractBasicText(buffer: Buffer, type: string) {
   if (type === "text/plain") return buffer.toString("utf8").slice(0, 100_000);
-  // PDF parsing is intentionally deferred to the worker layer; storing the upload
-  // contract now lets us add object storage + a real parser without changing the API.
   return null;
 }
 
@@ -29,13 +28,16 @@ export async function POST(request: Request) {
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const extractedText = extractBasicText(buffer, file.type);
+    const parsedJson = extractedText
+      ? { source: "text", status: "ready", version: 1, context: parseResumeText(extractedText) }
+      : { source: "pdf", status: "pending_parser", version: 1 };
     const fileUrl = `pending://${candidateId}/${crypto.randomUUID()}/${encodeURIComponent(file.name)}`;
 
     const result = await query(
       `insert into resumes (candidate_id, file_url, file_name, extracted_text, parsed_json)
        values ($1, $2, $3, $4, $5)
        returning id, file_name, extracted_text, parsed_json, created_at`,
-      [candidateId, fileUrl, file.name, extractedText, extractedText ? JSON.stringify({ source: "text", status: "ready" }) : JSON.stringify({ source: "pdf", status: "pending_parser" })],
+      [candidateId, fileUrl, file.name, extractedText, JSON.stringify(parsedJson)],
     );
 
     return NextResponse.json({ resume: result.rows[0], parserStatus: extractedText ? "ready" : "pending_parser" }, { status: 201 });
