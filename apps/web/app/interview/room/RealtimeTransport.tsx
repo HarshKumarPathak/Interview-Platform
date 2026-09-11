@@ -1,13 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
-type LiveKitTrack = { kind?: string; attach?: () => HTMLMediaElement };
-type LiveKitPublication = { kind?: string; track?: LiveKitTrack; videoTrack?: LiveKitTrack };
+type LiveKitPublication = { track?: { attach?: () => HTMLMediaElement } };
 type LiveKitParticipant = {
-  setCameraEnabled: (enabled: boolean) => Promise<LiveKitPublication | undefined>;
+  publishTrack: (track: MediaStreamTrack, options?: Record<string, unknown>) => Promise<LiveKitPublication>;
   setMicrophoneEnabled: (enabled: boolean) => Promise<LiveKitPublication | undefined>;
-  videoTrackPublications: Map<string, LiveKitPublication>;
 };
 type LiveKitRoom = {
   connect: (url: string, token: string) => Promise<void>;
@@ -17,8 +15,8 @@ type LiveKitRoom = {
 };
 type LiveKitClient = {
   Room: new (options?: Record<string, unknown>) => LiveKitRoom;
-  RoomEvent: { TrackSubscribed: string; LocalTrackPublished: string };
-  Track: { Kind: { Audio: string; Video: string } };
+  RoomEvent: { TrackSubscribed: string };
+  Track: { Kind: { Audio: string } };
 };
 
 declare global { interface Window { LivekitClient?: LiveKitClient } }
@@ -42,45 +40,25 @@ function loadLiveKitClient() {
   });
 }
 
-function attachLocalVideo(room: LiveKitRoom, container: HTMLElement | null, client: LiveKitClient) {
-  if (!container) return;
-  container.querySelectorAll("video[data-livekit-local]").forEach((element) => element.remove());
-  for (const publication of room.localParticipant.videoTrackPublications.values()) {
-    const track = publication.track ?? publication.videoTrack;
-    if (publication.kind !== client.Track.Kind.Video || !track?.attach) continue;
-    const element = track.attach();
-    element.setAttribute("data-livekit-local", "true");
-    element.setAttribute("aria-label", "Candidate camera preview");
-    element.setAttribute("playsinline", "true");
-    element.autoplay = true;
-    container.appendChild(element);
-    break;
-  }
-}
-
 export default function RealtimeTransport({
   interviewId,
+  stream,
   muted,
-  videoContainer,
   onStatus,
 }: {
   interviewId: string | null;
+  stream: MediaStream | null;
   muted: boolean;
-  videoContainer: HTMLElement | null;
   onStatus?: (status: "connecting" | "connected" | "unavailable") => void;
 }) {
-  const roomRef = useRef<LiveKitRoom | null>(null);
   const [status, setStatus] = useState("Realtime voice: waiting…");
 
   useEffect(() => {
-    const room = roomRef.current;
-    if (room) void room.localParticipant.setMicrophoneEnabled(!muted);
-  }, [muted]);
-
-  useEffect(() => {
-    if (!interviewId) return;
+    if (!interviewId || !stream) return;
     let active = true;
+    let room: LiveKitRoom | null = null;
     let client: LiveKitClient | null = null;
+
     const setTransportStatus = (next: "connecting" | "connected" | "unavailable") => {
       const label = next === "connected" ? "Realtime voice: connected" : next === "unavailable" ? "Realtime voice: unavailable · text fallback active" : "Realtime voice: connecting…";
       setStatus(label);
@@ -95,25 +73,27 @@ export default function RealtimeTransport({
         const { token, serverUrl } = await tokenResponse.json();
         client = await loadLiveKitClient();
         if (!active) return;
-        const room = new client.Room({ adaptiveStream: true, dynacast: true });
-        roomRef.current = room;
-        const onTrackSubscribed = (track: LiveKitTrack) => {
+        room = new client.Room({ adaptiveStream: true, dynacast: true });
+        const onTrackSubscribed = (track: { kind?: string; attach?: () => HTMLMediaElement }) => {
           if (track.kind !== client?.Track.Kind.Audio || !track.attach) return;
           const element = track.attach();
           element.autoplay = true;
           element.setAttribute("aria-label", "AI interviewer audio");
           document.body.appendChild(element);
         };
-        const onLocalTrackPublished = () => attachLocalVideo(room, videoContainer, client!);
         room.on(client.RoomEvent.TrackSubscribed, onTrackSubscribed);
-        room.on(client.RoomEvent.LocalTrackPublished, onLocalTrackPublished);
         await room.connect(serverUrl, token);
-        await room.localParticipant.setCameraEnabled(true);
+
+        const audioTrack = stream.getAudioTracks()[0];
+        const videoTrack = stream.getVideoTracks()[0];
+        if (!audioTrack || !videoTrack) throw new Error("Camera or microphone track unavailable");
+        await room.localParticipant.publishTrack(videoTrack, { source: "camera", simulcast: true });
+        await room.localParticipant.publishTrack(audioTrack, { source: "microphone" });
         await room.localParticipant.setMicrophoneEnabled(!muted);
-        attachLocalVideo(room, videoContainer, client);
         if (active) setTransportStatus("connected");
       } catch (error) {
         console.warn("LiveKit realtime transport unavailable", error);
+        room?.disconnect();
         if (active) setTransportStatus("unavailable");
       }
     }
@@ -121,11 +101,9 @@ export default function RealtimeTransport({
     void connect();
     return () => {
       active = false;
-      roomRef.current?.disconnect();
-      roomRef.current = null;
-      if (videoContainer) videoContainer.querySelectorAll("video[data-livekit-local]").forEach((element) => element.remove());
+      room?.disconnect();
     };
-  }, [interviewId, muted, onStatus, videoContainer]);
+  }, [interviewId, stream, muted, onStatus]);
 
   return <span className="room-realtime-status" aria-live="polite">{status}</span>;
 }
