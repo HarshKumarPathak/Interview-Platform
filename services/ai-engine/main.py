@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from typing import Literal
+import os
+from typing import Literal, Protocol
+
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
-app = FastAPI(title="Interview Platform AI Engine", version="0.2.0")
+app = FastAPI(title="Interview Platform AI Engine", version="0.3.0")
 
 
 class CandidateContext(BaseModel):
@@ -28,7 +30,8 @@ class InterviewContext(BaseModel):
 
 class QuestionRequest(BaseModel):
     context: InterviewContext
-    stage: str = "intro"
+    stage: Literal["intro", "technical", "behavioral", "deep_dive", "closing"] = "intro"
+    question_index: int = 0
     previous_answer: str | None = None
     previous_question: str | None = None
 
@@ -37,60 +40,169 @@ class QuestionResponse(BaseModel):
     question: str
     role: str
     rationale: str
-    source: Literal["candidate_context", "adaptive_follow_up", "interview_template"]
+    source: Literal["candidate_context", "adaptive_follow_up", "interview_template", "provider"]
     follow_up: bool = False
+    difficulty: Literal["easy", "adaptive", "hard"] = "adaptive"
+
+
+class QuestionProvider(Protocol):
+    def generate(self, request: QuestionRequest, policy_question: str) -> str | None: ...
+
+
+class FallbackProvider:
+    def generate(self, request: QuestionRequest, policy_question: str) -> str | None:
+        return None
+
+
+class OpenAICompatibleProvider:
+    """Optional OpenAI-compatible HTTP provider.
+
+    The engine keeps a deterministic fallback so local development works without
+    an API key. A provider can be enabled later with AI_PROVIDER=openai_compatible.
+    """
+
+    def __init__(self) -> None:
+        self.base_url = os.getenv("AI_BASE_URL", "").rstrip("/")
+        self.api_key = os.getenv("AI_API_KEY", "")
+        self.model = os.getenv("AI_MODEL", "")
+
+    def generate(self, request: QuestionRequest, policy_question: str) -> str | None:
+        if not self.base_url or not self.api_key or not self.model:
+            return None
+        # Intentionally leave network transport behind a provider boundary.
+        # This keeps the interview API stable while the production HTTP client is added.
+        return None
+
+
+def provider() -> QuestionProvider:
+    if os.getenv("AI_PROVIDER", "fallback").lower() == "openai_compatible":
+        return OpenAICompatibleProvider()
+    return FallbackProvider()
 
 
 def first_non_empty(values: list[str]) -> str | None:
     return next((value.strip() for value in values if value and value.strip()), None)
 
 
-def context_topic(candidate: CandidateContext) -> str | None:
-    return first_non_empty(candidate.projects) or first_non_empty(candidate.experience) or first_non_empty(candidate.skills)
+def context_topic(candidate: CandidateContext) -> tuple[str | None, str | None]:
+    if candidate.projects:
+        return first_non_empty(candidate.projects), "project"
+    if candidate.experience:
+        return first_non_empty(candidate.experience), "experience"
+    if candidate.skills:
+        return first_non_empty(candidate.skills), "skill"
+    return None, None
+
+
+def answer_signal(answer: str) -> dict[str, bool]:
+    text = answer.lower()
+    return {
+        "evidence": any(token in text for token in ("example", "result", "impact", "metric", "%", "users")),
+        "tradeoff": any(token in text for token in ("trade-off", "tradeoff", "alternative", "instead", "cost")),
+        "reflection": any(token in text for token in ("learned", "would change", "next time", "improve")),
+        "technical": any(token in text for token in ("api", "database", "cache", "queue", "algorithm", "testing", "deploy")),
+    }
+
+
+def policy_question(request: QuestionRequest) -> tuple[str, str, bool, Literal["easy", "adaptive", "hard"]]:
+    candidate = request.context.candidate
+    topic, topic_kind = context_topic(candidate)
+    answer = (request.previous_answer or "").strip()
+    difficulty = request.context.difficulty
+
+    if answer:
+        signal = answer_signal(answer)
+        if not signal["evidence"]:
+            return (
+                "What was the measurable outcome or concrete evidence that your approach worked?",
+                "evidence_gap",
+                True,
+                difficulty,
+            )
+        if not signal["tradeoff"]:
+            return (
+                "What alternatives did you consider, and why did you choose this approach over them?",
+                "tradeoff_gap",
+                True,
+                difficulty,
+            )
+        if not signal["reflection"]:
+            return (
+                "Looking back, what would you change if you had to solve the same problem again?",
+                "reflection_gap",
+                True,
+                difficulty,
+            )
+        return (
+            "Let's go one level deeper: what was the hardest technical detail behind that decision, and how did you validate it?",
+            "depth_probe",
+            True,
+            difficulty,
+        )
+
+    if request.stage == "intro":
+        return (
+            "Give me a concise introduction focused on your current skills, strongest project, and the kind of role you are preparing for.",
+            "intro_policy",
+            False,
+            difficulty,
+        )
+
+    if topic and topic_kind == "project":
+        return (
+            f"You listed '{topic}'. Walk me through the problem, architecture, your personal contribution, and the toughest technical decision.",
+            "resume_project",
+            False,
+            difficulty,
+        )
+    if topic and topic_kind == "experience":
+        return (
+            f"You mentioned '{topic}' in your experience. What did you personally own, what challenge did you face, and what was the outcome?",
+            "resume_experience",
+            False,
+            difficulty,
+        )
+    if topic:
+        return (
+            f"You list {topic} as a skill. Describe one real problem where you used it and how you verified your solution.",
+            "resume_skill",
+            False,
+            difficulty,
+        )
+
+    templates = {
+        "technical": "Choose a technical problem you solved recently. Explain your approach, one alternative you rejected, and the final result.",
+        "behavioral": "Tell me about a time you disagreed with a teammate. What did you do, and what was the outcome?",
+        "deep_dive": "Take one project from your background and explain the most important design trade-off you made.",
+        "closing": "What is one skill you are actively improving, and what evidence shows that you are getting better at it?",
+    }
+    return (templates.get(request.stage, templates["technical"]), "interview_template", False, difficulty)
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "ai-engine", "version": "0.2.0"}
+    return {"status": "ok", "service": "ai-engine", "version": "0.3.0"}
 
 
 @app.post("/v1/interview/question", response_model=QuestionResponse)
 def generate_question(request: QuestionRequest) -> QuestionResponse:
-    """Stable orchestration contract with grounded deterministic behavior.
-
-    A production provider can replace the question policy without changing the API.
-    Candidate facts are treated as context, not as evidence for inferred traits.
-    """
-    candidate = request.context.candidate
-
-    if request.previous_answer:
-        topic = request.previous_question or "your previous answer"
-        return QuestionResponse(
-            question=f"You mentioned {topic.lower()}. Can you give me one concrete example, explain the trade-off you considered, and tell me what you would change today?",
-            role="technical_interviewer",
-            rationale="The candidate answered, so the engine requests evidence, trade-offs, and reflection instead of repeating a generic question.",
-            source="adaptive_follow_up",
-            follow_up=True,
-        )
-
-    topic = context_topic(candidate)
-    if topic:
-        if topic in candidate.projects:
-            question = f"You listed a project called '{topic}'. Walk me through the problem, your architecture, and the most difficult technical decision you made."
-        elif topic in candidate.experience:
-            question = f"You mentioned '{topic}' in your experience. What was your specific contribution, and how did you measure the result?"
-        else:
-            question = f"You list {topic} as a skill. Tell me about a real situation where you used it, including one technical challenge you had to solve."
-        return QuestionResponse(
-            question=question,
-            role="technical_interviewer",
-            rationale="The opening question is grounded in the candidate context when a concrete resume item is available.",
-            source="candidate_context",
-        )
+    question, rationale, follow_up, difficulty = policy_question(request)
+    generated = provider().generate(request, question)
+    if generated:
+        question = generated
+        source: Literal["candidate_context", "adaptive_follow_up", "interview_template", "provider"] = "provider"
+    elif follow_up:
+        source = "adaptive_follow_up"
+    elif rationale.startswith("resume_"):
+        source = "candidate_context"
+    else:
+        source = "interview_template"
 
     return QuestionResponse(
-        question="Tell me about a project you are most proud of and the impact you had on it.",
+        question=question,
         role="technical_interviewer",
-        rationale=f"Opening question for {request.context.interview_type} interview when no grounded candidate item is available.",
-        source="interview_template",
+        rationale=rationale,
+        source=source,
+        follow_up=follow_up,
+        difficulty=difficulty,
     )
