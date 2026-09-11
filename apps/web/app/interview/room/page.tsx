@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 function parseConfig() {
   try { return JSON.parse(sessionStorage.getItem("interview-config") ?? "{}"); } catch { return {}; }
@@ -33,7 +33,7 @@ export default function InterviewRoomPage() {
   const durationMinutes = Number.parseInt(config.duration ?? "30", 10);
   const maxAnswers = 8;
 
-  async function finishInterview() {
+  const finishInterview = useCallback(async () => {
     if (!interviewId || ending) return;
     setEnding(true);
     await fetch("/api/interviews", {
@@ -42,7 +42,7 @@ export default function InterviewRoomPage() {
       body: JSON.stringify({ interviewId, status: "completed" }),
     });
     window.location.href = "/interview/complete";
-  }
+  }, [ending, interviewId]);
 
   useEffect(() => {
     const id = window.setInterval(() => setSeconds((s) => s + 1), 1000);
@@ -51,7 +51,7 @@ export default function InterviewRoomPage() {
 
   useEffect(() => {
     if (interviewId && seconds >= durationMinutes * 60) void finishInterview();
-  }, [seconds, durationMinutes, interviewId]);
+  }, [seconds, durationMinutes, interviewId, finishInterview]);
 
   useEffect(() => {
     async function start() {
