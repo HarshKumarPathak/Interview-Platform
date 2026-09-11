@@ -23,7 +23,7 @@ export default function RealtimeInterviewPage() {
             the AI interviewer's streamed audio when the interviewer agent is running.
           </p>
           {interviewId ? (
-            <RealtimeTransport interviewId={interviewId} />
+            <RealtimeTransport interviewId={interviewId} stream={null} muted={false} />
           ) : (
             <p>No active interview is available. Start an interview first.</p>
           )}
