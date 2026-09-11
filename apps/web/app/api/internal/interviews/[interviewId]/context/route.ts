@@ -36,6 +36,15 @@ export async function GET(
     const row = result.rows[0];
     if (!row) return NextResponse.json({ error: "Interview not found" }, { status: 404 });
 
+    const turns = await query<{ speaker: string; role: string | null; content: string; metadata: unknown }>(
+      `select speaker, role, content, metadata
+       from interview_turns
+       where interview_id = $1
+       order by sequence desc
+       limit 12`,
+      [interviewId],
+    );
+
     return NextResponse.json({
       interview: {
         id: row.id,
@@ -55,6 +64,7 @@ export async function GET(
         graduation_year: row.graduation_year,
       },
       resume: row.parsed_json ?? null,
+      recent_turns: turns.rows.reverse(),
     });
   } catch (error) {
     console.error("internal interview context failed", error);
