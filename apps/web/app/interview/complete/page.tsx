@@ -1,0 +1,5 @@
+import Link from "next/link";
+
+export default function CompletePage() {
+  return <main className="product-shell"><nav className="product-nav container"><Link href="/dashboard" className="brand"><span className="brand-mark">IP</span><span>Interview Platform</span></Link></nav><section className="complete container"><div className="complete-mark">✓</div><div className="eyebrow">Interview completed</div><h1>Your session is being evaluated.</h1><p>Your transcript and interview responses have been captured. The evaluation pipeline will turn them into a structured report with strengths, improvement areas and question-level feedback.</p><div className="evaluation-card"><div><strong>Session processing</strong><span>Transcript → response analysis → report</span></div><div className="progress-line"><i /></div><small>Evaluation is designed to be evidence-based, not a personality judgement.</small></div><div className="complete-actions"><Link href="/dashboard" className="button button-primary button-large">Back to dashboard</Link><Link href="/history" className="button button-ghost button-large">View interview history</Link></div></section></main>;
+}
