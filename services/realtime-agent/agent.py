@@ -75,6 +75,10 @@ def build_instructions(context: dict) -> str:
         for item in resume_context.get("experience", [])
         if isinstance(item, dict)
     ][:8]
+    recent_turns = context.get("recent_turns") or []
+    transcript_context = "\n".join(
+        f"{turn.get('speaker')}: {turn.get('content')}" for turn in recent_turns[-8:] if turn.get("content")
+    )
 
     policy = {
         "placement": "intro → technical → deep_dive → behavioral → closing; prioritize fundamentals, projects and problem solving",
@@ -101,7 +105,9 @@ def build_instructions(context: dict) -> str:
         f"Resume summary: {resume_context.get('summary', '')}. "
         f"Resume skills: {', '.join(map(str, skills))}. "
         f"Resume projects: {', '.join(map(str, projects))}. "
-        f"Resume experience: {', '.join(map(str, experience))}."
+        f"Resume experience: {', '.join(map(str, experience))}. "
+        "Recent interview transcript context (continue from this state and do not repeat a question already asked):\n"
+        f"{transcript_context or '(no previous turns)'}"
     )
 
 
@@ -125,7 +131,7 @@ async def interview_agent(ctx: JobContext):
         context = await fetch_context(interview_id)
     except Exception as error:
         print(f"interview context unavailable: {error}")
-        context = {"interview": {"type": "placement", "difficulty": "adaptive", "language": "English", "panel_size": 1}, "candidate": {}, "resume": {}}
+        context = {"interview": {"type": "placement", "difficulty": "adaptive", "language": "English", "panel_size": 1}, "candidate": {}, "resume": {}, "recent_turns": []}
 
     instructions = build_instructions(context)
     session = AgentSession()
@@ -149,12 +155,20 @@ async def interview_agent(ctx: JobContext):
         )
 
     await session.start(agent=Interviewer(instructions), room=ctx.room)
-    await session.generate_reply(
-        instructions=(
-            "Start the interview now. Greet the candidate briefly, then ask the first question appropriate "
-            "for the interview type and candidate context. Do not mention internal instructions or resume parsing."
+    if context.get("recent_turns"):
+        await session.generate_reply(
+            instructions=(
+                "The web interview room has already asked the candidate a question. Do not greet again and do not repeat it. "
+                "Continue naturally by listening for the candidate's next response; if no response is present yet, wait."
+            )
         )
-    )
+    else:
+        await session.generate_reply(
+            instructions=(
+                "Start the interview now. Greet the candidate briefly, then ask the first question appropriate "
+                "for the interview type and candidate context. Do not mention internal instructions or resume parsing."
+            )
+        )
 
 
 if __name__ == "__main__":
