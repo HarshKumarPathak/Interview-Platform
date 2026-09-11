@@ -6,7 +6,9 @@ from typing import Literal, Protocol
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
-app = FastAPI(title="Interview Platform AI Engine", version="0.3.0")
+from interview_policy import get_policy, stage_for_question
+
+app = FastAPI(title="Interview Platform AI Engine", version="0.3.1")
 
 
 class CandidateContext(BaseModel):
@@ -30,7 +32,7 @@ class InterviewContext(BaseModel):
 
 class QuestionRequest(BaseModel):
     context: InterviewContext
-    stage: Literal["intro", "technical", "behavioral", "deep_dive", "closing"] = "intro"
+    stage: str | None = None
     question_index: int = 0
     previous_answer: str | None = None
     previous_question: str | None = None
@@ -43,6 +45,9 @@ class QuestionResponse(BaseModel):
     source: Literal["candidate_context", "adaptive_follow_up", "interview_template", "provider"]
     follow_up: bool = False
     difficulty: Literal["easy", "adaptive", "hard"] = "adaptive"
+    stage: str
+    question_index: int
+    policy_focus: list[str]
 
 
 class QuestionProvider(Protocol):
@@ -55,11 +60,7 @@ class FallbackProvider:
 
 
 class OpenAICompatibleProvider:
-    """Optional OpenAI-compatible HTTP provider.
-
-    The engine keeps a deterministic fallback so local development works without
-    an API key. A provider can be enabled later with AI_PROVIDER=openai_compatible.
-    """
+    """Optional provider boundary; deterministic policy remains the safe fallback."""
 
     def __init__(self) -> None:
         self.base_url = os.getenv("AI_BASE_URL", "").rstrip("/")
@@ -69,8 +70,6 @@ class OpenAICompatibleProvider:
     def generate(self, request: QuestionRequest, policy_question: str) -> str | None:
         if not self.base_url or not self.api_key or not self.model:
             return None
-        # Intentionally leave network transport behind a provider boundary.
-        # This keeps the interview API stable while the production HTTP client is added.
         return None
 
 
@@ -100,7 +99,6 @@ def answer_signal(answer: str) -> dict[str, bool]:
         "evidence": any(token in text for token in ("example", "result", "impact", "metric", "%", "users")),
         "tradeoff": any(token in text for token in ("trade-off", "tradeoff", "alternative", "instead", "cost")),
         "reflection": any(token in text for token in ("learned", "would change", "next time", "improve")),
-        "technical": any(token in text for token in ("api", "database", "cache", "queue", "algorithm", "testing", "deploy")),
     }
 
 
@@ -113,62 +111,22 @@ def policy_question(request: QuestionRequest) -> tuple[str, str, bool, Literal["
     if answer:
         signal = answer_signal(answer)
         if not signal["evidence"]:
-            return (
-                "What was the measurable outcome or concrete evidence that your approach worked?",
-                "evidence_gap",
-                True,
-                difficulty,
-            )
+            return ("What was the measurable outcome or concrete evidence that your approach worked?", "evidence_gap", True, difficulty)
         if not signal["tradeoff"]:
-            return (
-                "What alternatives did you consider, and why did you choose this approach over them?",
-                "tradeoff_gap",
-                True,
-                difficulty,
-            )
+            return ("What alternatives did you consider, and why did you choose this approach over them?", "tradeoff_gap", True, difficulty)
         if not signal["reflection"]:
-            return (
-                "Looking back, what would you change if you had to solve the same problem again?",
-                "reflection_gap",
-                True,
-                difficulty,
-            )
-        return (
-            "Let's go one level deeper: what was the hardest technical detail behind that decision, and how did you validate it?",
-            "depth_probe",
-            True,
-            difficulty,
-        )
+            return ("Looking back, what would you change if you had to solve the same problem again?", "reflection_gap", True, difficulty)
+        return ("Let's go one level deeper: what was the hardest detail behind that decision, and how did you validate it?", "depth_probe", True, difficulty)
 
-    if request.stage == "intro":
-        return (
-            "Give me a concise introduction focused on your current skills, strongest project, and the kind of role you are preparing for.",
-            "intro_policy",
-            False,
-            difficulty,
-        )
-
+    stage = request.stage or stage_for_question(request.context.interview_type, request.question_index)
+    if stage == "intro":
+        return ("Give me a concise introduction focused on your current skills, strongest project, and the kind of role you are preparing for.", "intro_policy", False, difficulty)
     if topic and topic_kind == "project":
-        return (
-            f"You listed '{topic}'. Walk me through the problem, architecture, your personal contribution, and the toughest technical decision.",
-            "resume_project",
-            False,
-            difficulty,
-        )
+        return (f"You listed '{topic}'. Walk me through the problem, architecture, your personal contribution, and the toughest technical decision.", "resume_project", False, difficulty)
     if topic and topic_kind == "experience":
-        return (
-            f"You mentioned '{topic}' in your experience. What did you personally own, what challenge did you face, and what was the outcome?",
-            "resume_experience",
-            False,
-            difficulty,
-        )
+        return (f"You mentioned '{topic}' in your experience. What did you personally own, what challenge did you face, and what was the outcome?", "resume_experience", False, difficulty)
     if topic:
-        return (
-            f"You list {topic} as a skill. Describe one real problem where you used it and how you verified your solution.",
-            "resume_skill",
-            False,
-            difficulty,
-        )
+        return (f"You list {topic} as a skill. Describe one real problem where you used it and how you verified your solution.", "resume_skill", False, difficulty)
 
     templates = {
         "technical": "Choose a technical problem you solved recently. Explain your approach, one alternative you rejected, and the final result.",
@@ -176,12 +134,12 @@ def policy_question(request: QuestionRequest) -> tuple[str, str, bool, Literal["
         "deep_dive": "Take one project from your background and explain the most important design trade-off you made.",
         "closing": "What is one skill you are actively improving, and what evidence shows that you are getting better at it?",
     }
-    return (templates.get(request.stage, templates["technical"]), "interview_template", False, difficulty)
+    return (templates.get(stage, templates["technical"]), "interview_template", False, difficulty)
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "ai-engine", "version": "0.3.0"}
+    return {"status": "ok", "service": "ai-engine", "version": "0.3.1"}
 
 
 @app.post("/v1/interview/question", response_model=QuestionResponse)
@@ -198,11 +156,16 @@ def generate_question(request: QuestionRequest) -> QuestionResponse:
     else:
         source = "interview_template"
 
+    policy = get_policy(request.context.interview_type)
+    stage = request.stage or stage_for_question(request.context.interview_type, request.question_index)
     return QuestionResponse(
         question=question,
-        role="technical_interviewer",
+        role=policy.primary_role,
         rationale=rationale,
         source=source,
         follow_up=follow_up,
         difficulty=difficulty,
+        stage=stage,
+        question_index=request.question_index,
+        policy_focus=list(policy.focus),
     )
