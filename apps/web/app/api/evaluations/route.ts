@@ -27,10 +27,15 @@ function evaluateQuestion(question: string, answer: string, role: string | null,
 
 function pairTurns(turns: Turn[]) {
   const pairs: Array<{ question: Turn; answer: Turn }> = [];
-  for (let index = 0; index < turns.length; index += 1) {
-    if (turns[index].speaker !== "interviewer") continue;
-    const answer = turns.slice(index + 1).find((turn) => turn.speaker === "candidate");
-    if (answer) pairs.push({ question: turns[index], answer });
+  for (let index = 0; index < turns.length - 1; index += 1) {
+    const question = turns[index];
+    const answer = turns[index + 1];
+    // Only evaluate a candidate response when it immediately follows the
+    // interviewer turn. This prevents a later response from being attached to
+    // the wrong question when a panel or system turn appears in between.
+    if (question.speaker === "interviewer" && answer.speaker === "candidate") {
+      pairs.push({ question, answer });
+    }
   }
   return pairs;
 }
