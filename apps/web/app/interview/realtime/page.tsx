@@ -20,7 +20,7 @@ export default function RealtimeInterviewPage() {
           <h1>Live interviewer transport</h1>
           <p>
             This surface uses LiveKit WebRTC for realtime microphone/camera transport and can receive
-            the AI interviewer's streamed audio when the interviewer agent is running.
+            the AI interviewer&apos;s streamed audio when the interviewer agent is running.
           </p>
           {interviewId ? (
             <RealtimeTransport interviewId={interviewId} stream={null} muted={false} />
