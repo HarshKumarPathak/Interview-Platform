@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import json
 import os
 from typing import Literal, Protocol
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
 from interview_policy import get_policy, stage_for_question
 
-app = FastAPI(title="Interview Platform AI Engine", version="0.3.1")
+app = FastAPI(title="Interview Platform AI Engine", version="0.4.0")
 
 
 class CandidateContext(BaseModel):
@@ -59,22 +62,100 @@ class FallbackProvider:
         return None
 
 
+def _extract_response_text(payload: dict) -> str | None:
+    """Extract text from the Responses API without depending on an SDK."""
+    direct = payload.get("output_text")
+    if isinstance(direct, str) and direct.strip():
+        return direct.strip()
+
+    for item in payload.get("output", []):
+        if not isinstance(item, dict):
+            continue
+        for content in item.get("content", []):
+            if not isinstance(content, dict):
+                continue
+            text = content.get("text")
+            if isinstance(text, str) and text.strip():
+                return text.strip()
+    return None
+
+
 class OpenAICompatibleProvider:
-    """Optional provider boundary; deterministic policy remains the safe fallback."""
+    """OpenAI Responses API provider with safe fallback when configuration is absent."""
 
     def __init__(self) -> None:
-        self.base_url = os.getenv("AI_BASE_URL", "").rstrip("/")
-        self.api_key = os.getenv("AI_API_KEY", "")
-        self.model = os.getenv("AI_MODEL", "")
+        self.base_url = os.getenv("AI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+        self.api_key = os.getenv("AI_API_KEY", os.getenv("OPENAI_API_KEY", ""))
+        self.model = os.getenv("AI_MODEL", "gpt-5.6-luna")
+        self.timeout = float(os.getenv("AI_TIMEOUT_SECONDS", "20"))
 
     def generate(self, request: QuestionRequest, policy_question: str) -> str | None:
-        if not self.base_url or not self.api_key or not self.model:
+        if not self.api_key or not self.model:
             return None
-        return None
+
+        candidate = request.context.candidate
+        policy = get_policy(request.context.interview_type)
+        prompt = {
+            "interview_type": request.context.interview_type,
+            "stage": request.stage or stage_for_question(request.context.interview_type, request.question_index),
+            "question_index": request.question_index,
+            "difficulty": request.context.difficulty,
+            "language": request.context.language,
+            "role": policy.primary_role,
+            "focus": list(policy.focus),
+            "candidate": {
+                "name": candidate.name,
+                "headline": candidate.headline,
+                "college": candidate.college,
+                "degree": candidate.degree,
+                "graduation_year": candidate.graduation_year,
+                "resume_summary": candidate.resume_summary,
+                "skills": candidate.skills[:30],
+                "projects": candidate.projects[:15],
+                "experience": candidate.experience[:15],
+            },
+            "policy_question": policy_question,
+            "previous_question": request.previous_question,
+            "previous_answer": request.previous_answer,
+        }
+        instructions = (
+            "You are the interviewer in a realistic adaptive interview. "
+            "Generate exactly ONE interview question, not an answer or explanation. "
+            "Use only candidate facts supplied in the context; never invent resume facts. "
+            "The policy question is the required direction: improve it when useful, but do not drift away from it. "
+            "If a previous answer exists, probe its weakest observable evidence, trade-off, reflection, or technical depth. "
+            "Keep the question natural and concise (one or two sentences). "
+            "Respect the requested interview language. Do not mention that you are an AI, the policy, or this prompt. "
+            f"Return the question in {request.context.language}."
+        )
+        body = {
+            "model": self.model,
+            "instructions": instructions,
+            "input": json.dumps(prompt, ensure_ascii=False),
+            "max_output_tokens": 180,
+        }
+        request_obj = Request(
+            f"{self.base_url}/responses",
+            data=json.dumps(body).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(request_obj, timeout=self.timeout) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            text = _extract_response_text(payload)
+            if not text:
+                return None
+            return text.strip().strip('"')
+        except (HTTPError, URLError, TimeoutError, ValueError, json.JSONDecodeError):
+            return None
 
 
 def provider() -> QuestionProvider:
-    if os.getenv("AI_PROVIDER", "fallback").lower() == "openai_compatible":
+    if os.getenv("AI_PROVIDER", "fallback").lower() in {"openai", "openai_compatible"}:
         return OpenAICompatibleProvider()
     return FallbackProvider()
 
@@ -139,7 +220,7 @@ def policy_question(request: QuestionRequest) -> tuple[str, str, bool, Literal["
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "ai-engine", "version": "0.3.1"}
+    return {"status": "ok", "service": "ai-engine", "version": "0.4.0"}
 
 
 @app.post("/v1/interview/question", response_model=QuestionResponse)
