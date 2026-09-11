@@ -12,6 +12,7 @@ export async function POST(request: Request) {
     const speaker = String(body.speaker ?? "");
     const content = String(body.content ?? "").trim();
     const role = body.role ? String(body.role) : null;
+    const metadata = body.metadata && typeof body.metadata === "object" ? body.metadata : null;
     if (!interviewId || !["interviewer", "candidate", "system"].includes(speaker) || !content) {
       return NextResponse.json({ error: "Invalid turn" }, { status: 400 });
     }
@@ -28,9 +29,9 @@ export async function POST(request: Request) {
       [interviewId],
     );
     const result = await query(
-      `insert into interview_turns (interview_id, sequence_no, speaker, role, content, started_at, ended_at)
-       values ($1, $2, $3, $4, $5, now(), now()) returning id, sequence_no`,
-      [interviewId, sequence.rows[0].next_sequence, speaker, role, content],
+      `insert into interview_turns (interview_id, sequence_no, speaker, role, content, started_at, ended_at, metadata)
+       values ($1, $2, $3, $4, $5, now(), now(), $6::jsonb) returning id, sequence_no`,
+      [interviewId, sequence.rows[0].next_sequence, speaker, role, metadata ? JSON.stringify(metadata) : null],
     );
     return NextResponse.json({ turn: result.rows[0] }, { status: 201 });
   } catch (error) {
