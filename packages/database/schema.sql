@@ -81,5 +81,25 @@ create table if not exists evaluations (
   created_at timestamptz not null default now()
 );
 
+create table if not exists question_evaluations (
+  id uuid primary key default gen_random_uuid(),
+  evaluation_id uuid not null references evaluations(id) on delete cascade,
+  question_number integer not null,
+  interviewer_role text,
+  stage text,
+  question text not null,
+  answer text not null,
+  score numeric(5,2) not null,
+  evidence_score numeric(5,2) not null,
+  structure_score numeric(5,2) not null,
+  relevance_score numeric(5,2) not null,
+  feedback text not null,
+  missing_elements jsonb not null default '[]'::jsonb,
+  follow_up_reason text,
+  created_at timestamptz not null default now(),
+  unique (evaluation_id, question_number)
+);
+
 create index if not exists idx_interviews_candidate_created on interviews(candidate_id, created_at desc);
 create index if not exists idx_turns_interview_sequence on interview_turns(interview_id, sequence_no);
+create index if not exists idx_question_evaluations_evaluation on question_evaluations(evaluation_id, question_number);
