@@ -5,7 +5,7 @@ import urllib.error
 import urllib.request
 
 from dotenv import load_dotenv
-from livekit.agents import Agent, AgentServer, AgentSession, JobContext, cli
+from livekit.agents import Agent, AgentServer, AgentSession, JobContext, TurnHandlingOptions, cli
 from livekit.agents.llm import ChatMessage
 from livekit.plugins import openai
 
@@ -92,10 +92,12 @@ def build_instructions(context: dict) -> str:
     return (
         "You are the realtime interviewer for a serious interview platform. "
         "Run a realistic interview, one question at a time. Use the candidate context only as grounding; "
-        "never invent experience or facts. Ask for concrete evidence when claims are vague. Adapt follow-ups "
-        "to the candidate's previous answer instead of following a rigid script. Respect interruptions and "
-        "stop speaking when the candidate starts talking. Never infer personality, intelligence, honesty, "
-        "health, or sensitive traits from voice/video. Keep questions concise and professional. "
+        "never invent experience or facts. The platform's adaptive question engine decides the next interview "
+        "question after each completed candidate answer. When it provides a next-question instruction, ask that "
+        "question faithfully and do not substitute a different question. Ask for concrete evidence when claims "
+        "are vague. Respect interruptions and stop speaking when the candidate starts talking. Never infer "
+        "personality, intelligence, honesty, health, or sensitive traits from voice/video. Keep questions concise "
+        "and professional. "
         f"Interview type: {interview.get('type')}. Difficulty: {interview.get('difficulty')}. "
         f"Language: {interview.get('language')}. Panel size: {interview.get('panel_size')}. "
         f"Interview policy: {policy}. "
@@ -111,13 +113,105 @@ def build_instructions(context: dict) -> str:
     )
 
 
+def build_question_request(context: dict, question_index: int, previous_question: str | None, previous_answer: str | None) -> dict:
+    interview = context.get("interview", {})
+    candidate = context.get("candidate", {})
+    resume = context.get("resume") or {}
+    resume_context = resume.get("context") if isinstance(resume, dict) else {}
+    resume_context = resume_context if isinstance(resume_context, dict) else {}
+    return {
+        "context": {
+            "interview_type": interview.get("type", "placement"),
+            "difficulty": interview.get("difficulty", "adaptive"),
+            "language": interview.get("language", "English"),
+            "candidate": {
+                "name": candidate.get("display_name"),
+                "headline": candidate.get("headline"),
+                "college": candidate.get("college"),
+                "degree": candidate.get("degree"),
+                "graduation_year": candidate.get("graduation_year"),
+                "resume_summary": resume_context.get("summary"),
+                "skills": resume_context.get("skills", [])[:30],
+                "projects": [p.get("name") for p in resume_context.get("projects", []) if isinstance(p, dict) and p.get("name")][:15],
+                "experience": [
+                    " at ".join(str(value) for value in [item.get("role"), item.get("company")] if value)
+                    for item in resume_context.get("experience", [])
+                    if isinstance(item, dict)
+                ][:15],
+            },
+        },
+        "question_index": question_index,
+        "previous_question": previous_question,
+        "previous_answer": previous_answer,
+    }
+
+
+async def generate_next_question(context: dict, question_index: int, previous_question: str | None, previous_answer: str | None) -> dict | None:
+    base_url = os.getenv("AI_ENGINE_URL", "http://localhost:8000").rstrip("/")
+    url = f"{base_url}/v1/interview/question"
+    payload = json.dumps(
+        build_question_request(context, question_index, previous_question, previous_answer),
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+    def request() -> dict:
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            method="POST",
+            headers={"content-type": "application/json", "accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=15) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    try:
+        return await asyncio.to_thread(request)
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as error:
+        print(f"adaptive question engine unavailable: {error}")
+        return None
+
+
 class Interviewer(Agent):
-    def __init__(self, instructions: str) -> None:
+    def __init__(self, instructions: str, context: dict) -> None:
+        self.interview_context = context
+        self.question_index = len([turn for turn in context.get("recent_turns", []) if turn.get("speaker") == "candidate"])
+        self.previous_question: str | None = next(
+            (
+                turn.get("content")
+                for turn in reversed(context.get("recent_turns") or [])
+                if turn.get("speaker") == "interviewer" and turn.get("content")
+            ),
+            None,
+        )
+        self.pending_question: dict | None = None
         super().__init__(
             instructions=instructions,
             llm=openai.realtime.RealtimeModel(
                 model=os.getenv("OPENAI_REALTIME_MODEL", "gpt-realtime"),
             ),
+        )
+
+    async def on_user_turn_completed(self, turn_ctx, new_message: ChatMessage) -> None:
+        answer = new_message.text_content.strip()
+        if not answer:
+            return
+
+        self.question_index += 1
+        next_question = await generate_next_question(
+            self.interview_context,
+            self.question_index,
+            self.previous_question,
+            answer,
+        )
+        if not next_question or not next_question.get("question"):
+            return
+
+        self.pending_question = next_question
+        self.previous_question = str(next_question["question"])
+        await self.update_instructions(
+            "Continue the interview naturally. The adaptive question engine selected the next question. "
+            "Ask exactly this question, with the requested language and professional tone. Do not add another question: "
+            f"{next_question['question']}"
         )
 
 
@@ -134,7 +228,10 @@ async def interview_agent(ctx: JobContext):
         context = {"interview": {"type": "placement", "difficulty": "adaptive", "language": "English", "panel_size": 1}, "candidate": {}, "resume": {}, "recent_turns": []}
 
     instructions = build_instructions(context)
-    session = AgentSession()
+    agent = Interviewer(instructions, context)
+    session = AgentSession(
+        turn_handling=TurnHandlingOptions(turn_detection="vad"),
+    )
 
     @session.on("conversation_item_added")
     def on_conversation_item(event) -> None:
@@ -145,23 +242,37 @@ async def interview_agent(ctx: JobContext):
         if not text or item.interrupted:
             return
         speaker = "candidate" if item.role == "user" else "interviewer"
-        asyncio.create_task(
-            persist_turn(
-                interview_id,
-                speaker,
-                text,
-                {"source": "livekit-agent", "realtime": True, "role": item.role},
+        metadata = {"source": "livekit-agent", "realtime": True, "role": item.role}
+        if speaker == "interviewer" and agent.pending_question:
+            metadata.update(
+                {
+                    "question_index": agent.pending_question.get("question_index"),
+                    "stage": agent.pending_question.get("stage"),
+                    "question_source": agent.pending_question.get("source"),
+                    "rationale": agent.pending_question.get("rationale"),
+                    "follow_up": agent.pending_question.get("follow_up", False),
+                    "policy_focus": agent.pending_question.get("policy_focus", []),
+                }
             )
-        )
+            agent.pending_question = None
+        asyncio.create_task(persist_turn(interview_id, speaker, text, metadata))
 
-    await session.start(agent=Interviewer(instructions), room=ctx.room)
+    await session.start(agent=agent, room=ctx.room)
     if not context.get("recent_turns"):
-        await session.generate_reply(
-            instructions=(
-                "Start the interview now. Greet the candidate briefly, then ask the first question appropriate "
-                "for the interview type and candidate context. Do not mention internal instructions or resume parsing."
+        first_question = await generate_next_question(context, 0, None, None)
+        if first_question and first_question.get("question"):
+            agent.pending_question = first_question
+            agent.previous_question = str(first_question["question"])
+            await agent.update_instructions(
+                "Start the interview now. Greet the candidate briefly and then ask exactly this first question. "
+                "Do not ask any additional question in the same response: "
+                f"{first_question['question']}"
             )
-        )
+            await session.generate_reply(instructions=f"Ask the selected first question exactly: {first_question['question']}")
+        else:
+            await session.generate_reply(
+                instructions="Start the interview now. Greet the candidate briefly, then ask one concise opening question."
+            )
 
 
 if __name__ == "__main__":
