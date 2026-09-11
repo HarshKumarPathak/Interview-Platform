@@ -11,7 +11,7 @@ type LiveKitRoom = {
   connect: (url: string, token: string) => Promise<void>;
   disconnect: () => void;
   localParticipant: LiveKitParticipant;
-  on: (event: string, callback: (...args: any[]) => void) => void;
+  on: (event: string, callback: (...args: unknown[]) => void) => void;
 };
 type LiveKitClient = {
   Room: new (options?: Record<string, unknown>) => LiveKitRoom;
