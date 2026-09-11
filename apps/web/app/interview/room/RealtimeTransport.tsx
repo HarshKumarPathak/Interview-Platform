@@ -55,6 +55,7 @@ export default function RealtimeTransport({
 
   useEffect(() => {
     if (!interviewId || !stream) return;
+    const activeStream = stream;
     let active = true;
     let room: LiveKitRoom | null = null;
     let client: LiveKitClient | null = null;
@@ -84,8 +85,8 @@ export default function RealtimeTransport({
         room.on(client.RoomEvent.TrackSubscribed, onTrackSubscribed);
         await room.connect(serverUrl, token);
 
-        const audioTrack = stream.getAudioTracks()[0];
-        const videoTrack = stream.getVideoTracks()[0];
+        const audioTrack = activeStream.getAudioTracks()[0];
+        const videoTrack = activeStream.getVideoTracks()[0];
         if (!audioTrack || !videoTrack) throw new Error("Camera or microphone track unavailable");
         await room.localParticipant.publishTrack(videoTrack, { source: "camera", simulcast: true });
         await room.localParticipant.publishTrack(audioTrack, { source: "microphone" });
