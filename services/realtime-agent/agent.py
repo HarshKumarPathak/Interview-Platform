@@ -92,12 +92,11 @@ def build_instructions(context: dict) -> str:
     return (
         "You are the realtime interviewer for a serious interview platform. "
         "Run a realistic interview, one question at a time. Use the candidate context only as grounding; "
-        "never invent experience or facts. The platform's adaptive question engine decides the next interview "
-        "question after each completed candidate answer. When it provides a next-question instruction, ask that "
-        "question faithfully and do not substitute a different question. Ask for concrete evidence when claims "
-        "are vague. Respect interruptions and stop speaking when the candidate starts talking. Never infer "
-        "personality, intelligence, honesty, health, or sensitive traits from voice/video. Keep questions concise "
-        "and professional. "
+        "never invent experience or facts. The platform's adaptive question engine is the single source of truth "
+        "for question selection. When it provides a selected question, ask that question faithfully and do not "
+        "substitute, add, or regenerate another question. Ask for concrete evidence when claims are vague. "
+        "Respect interruptions and stop speaking when the candidate starts talking. Never infer personality, "
+        "intelligence, honesty, health, or sensitive traits from voice/video. Keep questions concise and professional. "
         f"Interview type: {interview.get('type')}. Difficulty: {interview.get('difficulty')}. "
         f"Language: {interview.get('language')}. Panel size: {interview.get('panel_size')}. "
         f"Interview policy: {policy}. "
@@ -188,6 +187,9 @@ class Interviewer(Agent):
             instructions=instructions,
             llm=openai.realtime.RealtimeModel(
                 model=os.getenv("OPENAI_REALTIME_MODEL", "gpt-realtime"),
+                # Turn boundaries are owned by LiveKit so on_user_turn_completed can
+                # select the next question before the realtime model replies.
+                turn_detection=None,
             ),
         )
 
@@ -230,7 +232,11 @@ async def interview_agent(ctx: JobContext):
     instructions = build_instructions(context)
     agent = Interviewer(instructions, context)
     session = AgentSession(
-        turn_handling=TurnHandlingOptions(turn_detection="vad"),
+        # LiveKit owns turn boundaries; the realtime model's own VAD is disabled above.
+        turn_handling=TurnHandlingOptions(
+            turn_detection="vad",
+            preemptive_generation={"preemptive_tts": False},
+        ),
     )
 
     @session.on("conversation_item_added")
