@@ -2,25 +2,46 @@
 
 An AI-powered interview simulation platform for realistic, adaptive interview practice across education, placements, government exams, professional hiring, and international use cases.
 
-> **Status:** Early development — architecture and MVP foundation.
+> **Status:** MVP foundation is implemented and actively evolving.
+
+## What works today
+
+- Candidate authentication and profile
+- Resume upload with structured TXT extraction and PDF parser placeholder
+- Interview configuration: type, language, duration, difficulty, panel size
+- Camera and microphone permission check
+- Persistent interview sessions and ordered transcript turns
+- Configuration-driven interview stages and interview-type policies
+- Adaptive follow-up questions based on observable answer gaps
+- Resume-grounded interview questions
+- Real OpenAI Responses API provider with deterministic fallback
+- Interview question metadata: stage, index, role, difficulty, rationale, policy focus
+- Evidence-based interview scoring and result report
+- Live dashboard and interview history
+
+## Current limitations
+
+The following are still planned rather than fully implemented: realtime voice/STT/TTS, LiveKit media transport, session recording, real PDF text extraction, object storage, asynchronous evaluation workers, true multi-interviewer orchestration, and photorealistic interviewer avatars.
 
 ## Vision
 
 Interview Platform is designed to simulate realistic interviews rather than behave like a static question-and-answer chatbot. Sessions will support voice, camera, dynamic follow-ups, adaptive difficulty, structured evaluation, interview history, and eventually multi-interviewer panels with realistic AI interviewers.
 
-## Initial MVP
+## AI provider configuration
 
-- Candidate authentication and profile
-- Resume upload and structured profile extraction
-- Interview-type configuration
-- Language, duration, difficulty, and interviewer configuration
-- Camera and microphone checks
-- Real-time voice interview
-- Dynamic questions and contextual follow-ups
-- Interview transcript and session recording
-- Delayed/asynchronous evaluation
-- Detailed interview report
-- Interview history and progress tracking
+The AI engine is provider-agnostic. Without provider credentials it uses deterministic interview policies as a safe fallback. To enable real model-generated questions, configure the service environment:
+
+```env
+AI_PROVIDER=openai
+AI_API_KEY=your_api_key
+AI_MODEL=gpt-5.6-luna
+AI_BASE_URL=https://api.openai.com/v1
+AI_TIMEOUT_SECONDS=20
+```
+
+`AI_API_KEY` can also be supplied through `OPENAI_API_KEY`. Never commit API keys to the repository.
+
+The web application talks to the AI engine through its server-side `/api/ai/question` proxy; browser code does not receive the provider key.
 
 ## Planned Architecture
 
@@ -89,14 +110,18 @@ tests/                 # Cross-service/integration tests
 
 | Area | Status |
 | --- | --- |
-| Repository foundation | 🚧 In progress |
-| Web application | ⏳ Planned |
-| Authentication | ⏳ Planned |
-| Resume parsing | ⏳ Planned |
-| Interview room | ⏳ Planned |
+| Repository foundation | ✅ Implemented |
+| Web application | 🚧 MVP implemented |
+| Authentication | ✅ Implemented |
+| Candidate profile | ✅ Implemented |
+| Resume parsing | 🚧 TXT implemented / PDF pending |
+| Interview room | 🚧 Text-first MVP |
+| Interview policy engine | ✅ Implemented |
+| Real LLM interviewer | ✅ Provider integrated / env required |
+| Evidence-based evaluation | ✅ Implemented |
 | Realtime voice | ⏳ Planned |
-| AI interviewer | ⏳ Planned |
-| Async evaluation | ⏳ Planned |
+| Session recording | ⏳ Planned |
+| Async evaluation worker | ⏳ Planned |
 | Multi-interviewer panel | 🔮 Planned |
 | Photorealistic AI interviewer | 🔮 Planned |
 
