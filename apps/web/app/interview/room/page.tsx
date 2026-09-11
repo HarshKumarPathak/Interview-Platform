@@ -21,7 +21,6 @@ type CandidateContext = {
 
 export default function InterviewRoomPage() {
   const [question, setQuestion] = useState("Preparing your interview…");
-  const [previousQuestion, setPreviousQuestion] = useState<string | null>(null);
   const [seconds, setSeconds] = useState(0);
   const [muted, setMuted] = useState(false);
   const [answer, setAnswer] = useState("");
@@ -61,8 +60,7 @@ export default function InterviewRoomPage() {
         if (!contextResponse.ok) throw new Error("candidate context unavailable");
         const candidateContext: CandidateContext = await contextResponse.json();
         setCandidate(candidateContext);
-        const candidateId = candidateContext.candidate?.id;
-        if (!candidateId) throw new Error("candidate unavailable");
+        if (!candidateContext.candidate?.id) throw new Error("candidate unavailable");
 
         const response = await fetch("/api/interviews", {
           method: "POST",
@@ -136,7 +134,6 @@ export default function InterviewRoomPage() {
       body: JSON.stringify({ context: { interview_type: config.type ?? "placement", difficulty: (config.difficulty ?? "adaptive").toLowerCase(), language: config.language ?? "English", candidate: {} }, stage: "follow_up", previous_answer: text, previous_question: currentQuestion }),
     });
     const ai = response.ok ? await response.json() : { question: "Can you give me one concrete example and explain the trade-off you considered?", role: "technical_interviewer", source: "adaptive_follow_up", rationale: "Fallback follow-up" };
-    setPreviousQuestion(currentQuestion);
     setQuestion(ai.question);
     setAnswer("");
     await fetch("/api/interviews/turns", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ interviewId, speaker: "interviewer", role: ai.role, content: ai.question, metadata: { source: ai.source, rationale: ai.rationale, previous_question: currentQuestion } }) });
