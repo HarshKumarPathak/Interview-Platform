@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const types = [
   ["placement", "Software Engineering", "Technical, projects and behavioral"],
@@ -14,12 +13,16 @@ const types = [
 ] as const;
 
 export default function NewInterviewPage() {
-  const params = useSearchParams();
-  const [type, setType] = useState(params.get("type") || "placement");
+  const [type, setType] = useState("placement");
   const [difficulty, setDifficulty] = useState("Adaptive");
   const [duration, setDuration] = useState("30 min");
   const [language, setLanguage] = useState("English");
   const [panel, setPanel] = useState("1 interviewer");
+
+  useEffect(() => {
+    const requestedType = new URLSearchParams(window.location.search).get("type");
+    if (requestedType && types.some(([id]) => id === requestedType)) setType(requestedType);
+  }, []);
 
   const startHref = `/interview/check?type=${type}&difficulty=${difficulty.toLowerCase()}&duration=${duration.replace(" ", "-")}&language=${language.toLowerCase()}&panel=${encodeURIComponent(panel)}`;
 
