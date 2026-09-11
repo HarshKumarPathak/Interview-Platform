@@ -155,14 +155,7 @@ async def interview_agent(ctx: JobContext):
         )
 
     await session.start(agent=Interviewer(instructions), room=ctx.room)
-    if context.get("recent_turns"):
-        await session.generate_reply(
-            instructions=(
-                "The web interview room has already asked the candidate a question. Do not greet again and do not repeat it. "
-                "Continue naturally by listening for the candidate's next response; if no response is present yet, wait."
-            )
-        )
-    else:
+    if not context.get("recent_turns"):
         await session.generate_reply(
             instructions=(
                 "Start the interview now. Greet the candidate briefly, then ask the first question appropriate "
