@@ -77,7 +77,7 @@ export default function RealtimeTransport({
         room = new client.Room({ adaptiveStream: true, dynacast: true });
         const onTrackSubscribed = (...args: unknown[]) => {
           const track = args[0] as { kind?: string; attach?: () => HTMLMediaElement } | undefined;
-          if (track?.kind !== client?.Track.Kind.Audio || !track.attach) return;
+          if (!track || track.kind !== client?.Track.Kind.Audio || !track.attach) return;
           const element = track.attach();
           element.autoplay = true;
           element.setAttribute("aria-label", "AI interviewer audio");
