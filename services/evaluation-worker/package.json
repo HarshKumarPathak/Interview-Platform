@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "scripts": { "start": "tsx src/index.ts", "typecheck": "tsc --noEmit", "lint": "eslint .", "test": "node --test" },
+  "scripts": { "start": "tsx src/index.ts", "typecheck": "tsc --noEmit", "lint": "eslint eslint.config.mjs", "test": "node --test" },
   "dependencies": { "@interview-platform/database": "workspace:*" },
   "devDependencies": { "@types/node": "^22.0.0", "@eslint/js": "^9.39.5", "eslint": "^9.39.5", "tsx": "^4.19.4", "typescript": "^5.7.0" }
 }
