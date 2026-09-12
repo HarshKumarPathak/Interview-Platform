@@ -32,5 +32,8 @@ jobs:
       - name: Compile agent
         run: python -m compileall -q agent.py
 
+      - name: Import smoke test
+        run: python -c "import agent; print('realtime agent import: ok')"
+
       - name: Build Docker image
         run: docker build -t interview-realtime-agent:ci .
