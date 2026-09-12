@@ -14,6 +14,7 @@ export function createLiveKitToken(input: {
 }) {
   const now = Math.floor(Date.now() / 1000);
   const ttl = input.ttlSeconds ?? 60 * 60;
+  const deployment = process.env.LIVEKIT_AGENT_DEPLOYMENT?.trim();
   const header = base64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
   const payload = base64url(JSON.stringify({
     iss: input.apiKey,
@@ -28,6 +29,14 @@ export function createLiveKitToken(input: {
       canPublish: true,
       canSubscribe: true,
       canPublishData: true,
+    },
+    roomConfig: {
+      agents: [
+        {
+          agentName: "interview-agent",
+          ...(deployment ? { deployment } : {}),
+        },
+      ],
     },
   }));
   const unsigned = `${header}.${payload}`;
