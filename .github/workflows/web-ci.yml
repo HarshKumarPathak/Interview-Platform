@@ -6,9 +6,12 @@ on:
   pull_request:
     paths:
       - "apps/web/**"
+      - "services/**"
       - "packages/database/**"
+      - "tests/**"
       - "package.json"
       - "pnpm-workspace.yaml"
+      - "pnpm-lock.yaml"
 
 jobs:
   web:
@@ -26,12 +29,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
 
       - name: Lint
         run: pnpm lint
