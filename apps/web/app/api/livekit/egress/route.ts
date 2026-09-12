@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createHmac } from "node:crypto";
 import { query } from "@interview-platform/database";
 import { getSession } from "../../../../../lib/auth";
 import { createLiveKitRoomRecordToken } from "../../../../../lib/livekit-token";
@@ -17,6 +18,58 @@ function storageConfig() {
   const endpoint = process.env.S3_ENDPOINT?.trim();
   if (!bucket || !accessKey || !secret) return null;
   return { s3: { access_key: accessKey, secret, bucket, region, ...(endpoint ? { endpoint, force_path_style: true } : {}) } };
+}
+
+function s3Config() {
+  const bucket = process.env.S3_BUCKET?.trim();
+  const accessKey = process.env.S3_ACCESS_KEY_ID?.trim();
+  const secret = process.env.S3_SECRET_ACCESS_KEY?.trim();
+  const region = process.env.S3_REGION?.trim() || "auto";
+  if (!bucket || !accessKey || !secret) return null;
+  const endpoint = process.env.S3_ENDPOINT?.trim() || `https://s3.${region}.amazonaws.com`;
+  return { bucket, accessKey, secret, region, endpoint: endpoint.replace(/\/$/, "") };
+}
+
+function awsEncode(value: string) {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+function canonicalPath(key: string) {
+  return `/${key.split("/").map(awsEncode).join("/")}`;
+}
+
+function hmac(key: string | Buffer, value: string) {
+  return createHmac("sha256", key).update(value).digest();
+}
+
+function hexHmac(key: string | Buffer, value: string) {
+  return createHmac("sha256", key).update(value).digest("hex");
+}
+
+function signedPlaybackUrl(key: string) {
+  const config = s3Config();
+  if (!config || key.includes("{")) return null;
+  const endpoint = new URL(config.endpoint);
+  const host = endpoint.host;
+  const path = `${endpoint.pathname.replace(/\/$/, "")}/${config.bucket}${canonicalPath(key)}`.replace(/\/+/g, "/");
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+  const dateStamp = amzDate.slice(0, 8);
+  const credentialScope = `${dateStamp}/${config.region}/s3/aws4_request`;
+  const params = new URLSearchParams({
+    "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
+    "X-Amz-Credential": `${config.accessKey}/${credentialScope}`,
+    "X-Amz-Date": amzDate,
+    "X-Amz-Expires": "900",
+    "X-Amz-SignedHeaders": "host",
+  });
+  const sortedQuery = [...params.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([keyName, value]) => `${awsEncode(keyName)}=${awsEncode(value)}`).join("&");
+  const canonicalRequest = ["GET", path, sortedQuery, `host:${host}\n`, "host", "UNSIGNED-PAYLOAD"].join("\n");
+  const stringToSign = ["AWS4-HMAC-SHA256", amzDate, credentialScope, hexHmac(hexHmac(hmac(hmac(`AWS4${config.secret}`, dateStamp), config.region), "s3"), "aws4_request"), canonicalRequest].join("\n");
+  const signingKey = hmac(hmac(hmac(`AWS4${config.secret}`, dateStamp), config.region), "s3");
+  const signature = hexHmac(signingKey, stringToSign);
+  params.set("X-Amz-Signature", signature);
+  return `${endpoint.origin}${path}?${params.toString()}`;
 }
 
 async function liveKitRequest(path: string, body: Record<string, unknown>, roomName: string) {
@@ -57,19 +110,24 @@ export async function GET(request: Request) {
     if (!interviewId) return NextResponse.json({ error: "interviewId is required" }, { status: 400 });
     const row = await candidateInterview(interviewId, session.userId);
     if (!row) return NextResponse.json({ error: "Interview not found" }, { status: 404 });
-    if (!row.recording_egress_id) return NextResponse.json({ recordingStatus: row.recording_status, egressId: null, path: row.recording_path });
+    if (!row.recording_egress_id) return NextResponse.json({ recordingStatus: row.recording_status, egressId: null, path: row.recording_path, playbackUrl: null });
 
     try {
       const result = await liveKitRequest("ListEgress", { egress_id: row.recording_egress_id }, `interview-${interviewId}`);
       const item = Array.isArray(result.items) ? result.items[0] as Record<string, unknown> | undefined : undefined;
       const status = typeof item?.status === "string" ? item.status : null;
+      const fileResults = Array.isArray(item?.file_results) ? item.file_results as Array<Record<string, unknown>> : [];
+      const location = typeof fileResults[0]?.location === "string" ? fileResults[0].location : null;
+      const actualPath = location ? location.replace(/^s3:\/\/[^/]+\//, "") : row.recording_path;
       const completed = status === "EGRESS_COMPLETE";
       const failed = ["EGRESS_FAILED", "EGRESS_ABORTED", "EGRESS_LIMIT_REACHED"].includes(status ?? "");
+      if (location) await query("update interviews set recording_path = $1 where id = $2", [actualPath, interviewId]);
       if (completed) await query("update interviews set recording_status = 'completed', recording_completed_at = coalesce(recording_completed_at, now()), recording_error = null where id = $1", [interviewId]);
       if (failed) await query("update interviews set recording_status = 'failed', recording_error = coalesce($2, recording_error) where id = $1", [interviewId, typeof item?.error === "string" ? item.error : "Egress failed"]);
-      return NextResponse.json({ recordingStatus: completed ? "completed" : failed ? "failed" : row.recording_status, egressId: row.recording_egress_id, path: row.recording_path, egressStatus: status, error: item?.error ?? null });
+      const playbackUrl = completed && actualPath ? signedPlaybackUrl(actualPath) : null;
+      return NextResponse.json({ recordingStatus: completed ? "completed" : failed ? "failed" : row.recording_status, egressId: row.recording_egress_id, path: actualPath, playbackUrl, egressStatus: status, error: item?.error ?? null });
     } catch {
-      return NextResponse.json({ recordingStatus: row.recording_status, egressId: row.recording_egress_id, path: row.recording_path });
+      return NextResponse.json({ recordingStatus: row.recording_status, egressId: row.recording_egress_id, path: row.recording_path, playbackUrl: row.recording_status === "completed" && row.recording_path ? signedPlaybackUrl(row.recording_path) : null });
     }
   } catch (error) {
     console.error("LiveKit Egress status failed", error);
