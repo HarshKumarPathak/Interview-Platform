@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type LiveKitPublication = { track?: { attach?: () => HTMLMediaElement } };
 type LiveKitParticipant = {
@@ -52,6 +52,18 @@ export default function RealtimeTransport({
   onStatus?: (status: "connecting" | "connected" | "unavailable") => void;
 }) {
   const [status, setStatus] = useState("Realtime voice: waiting…");
+  const mutedRef = useRef(muted);
+  const onStatusRef = useRef(onStatus);
+  const roomRef = useRef<LiveKitRoom | null>(null);
+
+  useEffect(() => {
+    mutedRef.current = muted;
+    void roomRef.current?.localParticipant.setMicrophoneEnabled(!muted).catch(() => undefined);
+  }, [muted]);
+
+  useEffect(() => {
+    onStatusRef.current = onStatus;
+  }, [onStatus]);
 
   useEffect(() => {
     if (!interviewId || !stream) return;
@@ -59,22 +71,29 @@ export default function RealtimeTransport({
     let active = true;
     let room: LiveKitRoom | null = null;
     let client: LiveKitClient | null = null;
+    const remoteAudioElements: HTMLMediaElement[] = [];
 
     const setTransportStatus = (next: "connecting" | "connected" | "unavailable") => {
       const label = next === "connected" ? "Realtime voice: connected" : next === "unavailable" ? "Realtime voice: unavailable · text fallback active" : "Realtime voice: connecting…";
       setStatus(label);
-      onStatus?.(next);
+      onStatusRef.current?.(next);
     };
 
     async function connect() {
       setTransportStatus("connecting");
       try {
-        const tokenResponse = await fetch("/api/livekit/token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ interviewId }) });
+        const tokenResponse = await fetch("/api/livekit/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ interviewId }),
+        });
         if (!tokenResponse.ok) throw new Error("Realtime voice is not configured");
         const { token, serverUrl } = await tokenResponse.json();
         client = await loadLiveKitClient();
         if (!active) return;
+
         room = new client.Room({ adaptiveStream: true, dynacast: true });
+        roomRef.current = room;
         const onTrackSubscribed = (...args: unknown[]) => {
           const track = args[0] as { kind?: string; attach?: () => HTMLMediaElement } | undefined;
           if (!track || track.kind !== client?.Track.Kind.Audio || !track.attach) return;
@@ -82,6 +101,7 @@ export default function RealtimeTransport({
           element.autoplay = true;
           element.setAttribute("aria-label", "AI interviewer audio");
           document.body.appendChild(element);
+          remoteAudioElements.push(element);
         };
         room.on(client.RoomEvent.TrackSubscribed, onTrackSubscribed);
         await room.connect(serverUrl, token);
@@ -91,11 +111,12 @@ export default function RealtimeTransport({
         if (!audioTrack || !videoTrack) throw new Error("Camera or microphone track unavailable");
         await room.localParticipant.publishTrack(videoTrack, { source: "camera", simulcast: true });
         await room.localParticipant.publishTrack(audioTrack, { source: "microphone" });
-        await room.localParticipant.setMicrophoneEnabled(!muted);
+        await room.localParticipant.setMicrophoneEnabled(!mutedRef.current);
         if (active) setTransportStatus("connected");
       } catch (error) {
         console.warn("LiveKit realtime transport unavailable", error);
         room?.disconnect();
+        roomRef.current = null;
         if (active) setTransportStatus("unavailable");
       }
     }
@@ -104,8 +125,10 @@ export default function RealtimeTransport({
     return () => {
       active = false;
       room?.disconnect();
+      if (roomRef.current === room) roomRef.current = null;
+      for (const element of remoteAudioElements) element.remove();
     };
-  }, [interviewId, stream, muted, onStatus]);
+  }, [interviewId, stream]);
 
   return <span className="room-realtime-status" aria-live="polite">{status}</span>;
 }
