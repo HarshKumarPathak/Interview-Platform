@@ -50,6 +50,12 @@ create table if not exists interviews (
   status interview_status not null default 'draft',
   started_at timestamptz,
   completed_at timestamptz,
+  recording_status text not null default 'disabled' check (recording_status in ('disabled', 'starting', 'recording', 'stopping', 'completed', 'failed')),
+  recording_egress_id text,
+  recording_path text,
+  recording_started_at timestamptz,
+  recording_completed_at timestamptz,
+  recording_error text,
   created_at timestamptz not null default now()
 );
 
@@ -103,3 +109,4 @@ create table if not exists question_evaluations (
 create index if not exists idx_interviews_candidate_created on interviews(candidate_id, created_at desc);
 create index if not exists idx_turns_interview_sequence on interview_turns(interview_id, sequence_no);
 create index if not exists idx_question_evaluations_evaluation on question_evaluations(evaluation_id, question_number);
+create index if not exists idx_interviews_recording_egress on interviews(recording_egress_id) where recording_egress_id is not null;
