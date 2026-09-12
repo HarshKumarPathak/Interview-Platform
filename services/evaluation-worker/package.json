@@ -1,0 +1,9 @@
+{
+  "name": "@interview-platform/evaluation-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "tsx src/index.ts", "typecheck": "tsc --noEmit", "lint": "eslint .", "test": "node --test" },
+  "dependencies": { "@interview-platform/database": "workspace:*" },
+  "devDependencies": { "@types/node": "^22.0.0", "tsx": "^4.19.4", "typescript": "^5.7.0" }
+}
