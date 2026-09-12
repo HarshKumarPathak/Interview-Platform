@@ -2,7 +2,7 @@
 
 An AI-powered interview simulation platform for realistic, adaptive interview practice across education, placements, government exams, professional hiring, and international use cases.
 
-> **Status:** MVP foundation is implemented and actively evolving.
+> **Status:** Realtime MVP is implemented and actively evolving.
 
 ## What works today
 
@@ -18,14 +18,48 @@ An AI-powered interview simulation platform for realistic, adaptive interview pr
 - Interview question metadata: stage, index, role, difficulty, rationale, policy focus
 - Evidence-based interview scoring and result report
 - Live dashboard and interview history
+- LiveKit realtime transport for candidate camera/microphone
+- Realtime AI interviewer agent with adaptive question-engine integration
+- AI interviewer audio playback in the browser
+- Realtime interviewer/candidate turn persistence
+- LiveKit agent staging deployment workflow
 
 ## Current limitations
 
-The following are still planned rather than fully implemented: realtime voice/STT/TTS, LiveKit media transport, session recording, real PDF text extraction, object storage, asynchronous evaluation workers, true multi-interviewer orchestration, and photorealistic interviewer avatars.
+The following are still planned or incomplete: session recording, real PDF text extraction, object storage, asynchronous evaluation workers, true multi-interviewer orchestration, and photorealistic interviewer avatars.
+
+## Realtime interview flow
+
+```text
+Candidate Browser
+   │
+   ├── Camera + Microphone
+   │
+   ▼
+Next.js Web App
+   │
+   ├── LiveKit access token + agent dispatch
+   │
+   ▼
+LiveKit Room
+   │
+   ▼
+Realtime Interview Agent
+   │
+   ├── Candidate context
+   ├── Adaptive question engine
+   ├── Realtime voice conversation
+   └── Turn persistence
+   │
+   ▼
+PostgreSQL / Interview APIs
+```
+
+The realtime layer is intentionally separated from interview policy and evaluation. LiveKit owns media transport and turn boundaries, the realtime agent owns conversational delivery, and the AI engine remains the source of truth for question selection.
 
 ## Vision
 
-Interview Platform is designed to simulate realistic interviews rather than behave like a static question-and-answer chatbot. Sessions will support voice, camera, dynamic follow-ups, adaptive difficulty, structured evaluation, interview history, and eventually multi-interviewer panels with realistic AI interviewers.
+Interview Platform is designed to simulate realistic interviews rather than behave like a static question-and-answer chatbot. Sessions support voice, camera, dynamic follow-ups, adaptive difficulty, structured evaluation, interview history, and eventually multi-interviewer panels with realistic AI interviewers.
 
 ## AI provider configuration
 
@@ -43,6 +77,24 @@ AI_TIMEOUT_SECONDS=20
 
 The web application talks to the AI engine through its server-side `/api/ai/question` proxy; browser code does not receive the provider key.
 
+## Realtime configuration
+
+The realtime agent requires server-side configuration for LiveKit and the AI provider. Typical deployment variables include:
+
+```env
+LIVEKIT_URL=...
+LIVEKIT_API_KEY=...
+LIVEKIT_API_SECRET=...
+LIVEKIT_AGENT_DEPLOYMENT=...
+LIVEKIT_AGENT_SHARED_SECRET=...
+WEB_APP_URL=...
+AI_ENGINE_URL=...
+OPENAI_API_KEY=...
+OPENAI_REALTIME_MODEL=gpt-realtime
+```
+
+Keep all secrets in local environment files or GitHub Environment secrets. Never commit credentials to the repository.
+
 ## Planned Architecture
 
 ```text
@@ -51,13 +103,13 @@ Candidate
    ▼
 Next.js Web App ──────── PostgreSQL
    │                        │
-   │ WebRTC                 │ Candidate/session data
+   │ LiveKit/WebRTC         │ Candidate/session data
    ▼                        │
-LiveKit ◄────────────── AI Engine
+LiveKit ─────────────── AI Engine
    │                        │
    │ realtime media         ├── Interview Orchestrator
    ▼                        ├── Interviewer Agent(s)
-AI Interview Session       ├── Context Engine
+Realtime AI Interview      ├── Context Engine
                             └── Evaluation Pipeline
                                      │
                                      ▼
@@ -76,7 +128,8 @@ apps/
 
 services/
   ai-engine/          # AI orchestration and provider abstraction
-  interview-agent/    # Realtime interview agent
+  realtime-agent/     # LiveKit realtime interview agent
+  interview-agent/    # Interview-agent workspace/docs
   evaluation-worker/  # Async transcript/evaluation pipeline
 
 packages/
@@ -115,11 +168,11 @@ tests/                 # Cross-service/integration tests
 | Authentication | ✅ Implemented |
 | Candidate profile | ✅ Implemented |
 | Resume parsing | 🚧 TXT implemented / PDF pending |
-| Interview room | 🚧 Text-first MVP |
+| Interview room | 🚧 Realtime MVP |
 | Interview policy engine | ✅ Implemented |
 | Real LLM interviewer | ✅ Provider integrated / env required |
 | Evidence-based evaluation | ✅ Implemented |
-| Realtime voice | ⏳ Planned |
+| Realtime voice | ✅ LiveKit transport + realtime agent |
 | Session recording | ⏳ Planned |
 | Async evaluation worker | ⏳ Planned |
 | Multi-interviewer panel | 🔮 Planned |
