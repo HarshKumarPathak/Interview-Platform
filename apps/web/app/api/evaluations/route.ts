@@ -72,13 +72,13 @@ export async function GET(request: Request) {
     if (!candidateId) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     const interviewId = new URL(request.url).searchParams.get("interviewId");
     if (!interviewId) return NextResponse.json({ error: "interviewId is required" }, { status: 400 });
+    const interviewResult = await query("select id, type, difficulty, duration_minutes, language, panel_size, status, started_at, completed_at, recording_status, recording_path, recording_started_at, recording_completed_at from interviews where id = $1 and candidate_id = $2", [interviewId, candidateId]);
+    const interview = interviewResult.rows[0];
+    if (!interview) return NextResponse.json({ error: "Interview not found" }, { status: 404 });
     const result = await query(`select e.* from evaluations e join interviews i on i.id = e.interview_id where e.interview_id = $1 and i.candidate_id = $2`, [interviewId, candidateId]);
-    if (!result.rows[0]) {
-      const state = await query<{ status: string }>("select status from interviews where id = $1 and candidate_id = $2", [interviewId, candidateId]);
-      if (!state.rows[0]) return NextResponse.json({ error: "Interview not found" }, { status: 404 });
-      return NextResponse.json({ evaluation: null, questions: [], status: state.rows[0].status }, { status: 200 });
-    }
+    if (!result.rows[0]) return NextResponse.json({ evaluation: null, questions: [], turns: [], interview, status: interview.status }, { status: 200 });
     const questions = await query("select question_number, interviewer_role, stage, question, answer, score, evidence_score, structure_score, relevance_score, feedback, missing_elements, follow_up_reason from question_evaluations where evaluation_id = $1 order by question_number asc", [result.rows[0].id]);
-    return NextResponse.json({ evaluation: result.rows[0], questions: questions.rows, status: "evaluated" });
+    const turns = await query("select sequence_no, speaker, content, role, created_at from interview_turns where interview_id = $1 order by sequence_no asc", [interviewId]);
+    return NextResponse.json({ evaluation: result.rows[0], questions: questions.rows, turns: turns.rows, interview, status: "evaluated" });
   } catch (error) { console.error("evaluation fetch failed", error); return NextResponse.json({ error: "Database is unavailable" }, { status: 503 }); }
 }
