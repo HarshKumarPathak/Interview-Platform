@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { createHash, createHmac } from "node:crypto";
 import { query } from "@interview-platform/database";
-import { getSession } from "../../../../../lib/auth";
-import { createLiveKitRoomRecordToken } from "../../../../../lib/livekit-token";
+import { getSession } from "../../../../lib/auth";
+import { createLiveKitRoomRecordToken } from "../../../../lib/livekit-token";
 
 function liveKitHttpUrl() {
   const raw = process.env.LIVEKIT_URL?.trim();
