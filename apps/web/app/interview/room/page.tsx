@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import RealtimeTransport from "./RealtimeTransport";
 
@@ -15,6 +16,7 @@ const QUESTION_LIMITS: Record<string, number> = { placement: 10, hr: 8, upsc: 10
 const SPEECH_LANGUAGES: Record<string, string> = { English: "en-IN", Hindi: "hi-IN", Hinglish: "en-IN" };
 
 export default function InterviewRoomPage() {
+  const router = useRouter();
   const [question, setQuestion] = useState("Preparing your interview…");
   const [questionMeta, setQuestionMeta] = useState<AIQuestion | null>(null);
   const [seconds, setSeconds] = useState(0);
@@ -52,8 +54,8 @@ export default function InterviewRoomPage() {
     recognition.onresult = (event) => { let transcript = ""; for (let index = 0; index < event.results.length; index += 1) transcript += event.results[index][0]?.transcript ?? ""; setAnswer(transcript.trim()); }; recognition.onerror = () => setListening(false); recognition.onend = () => setListening(false); recognitionRef.current = recognition; try { recognition.start(); setListening(true); } catch { setListening(false); }
   }, [realtimeStatus, speechLanguage, stopListening]);
   const finishInterview = useCallback(async () => {
-    if (!interviewId || ending) return; setEnding(true); stopListening(); if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel(); streamRef.current?.getTracks().forEach((track) => track.stop()); await fetch("/api/interviews", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ interviewId, status: "completed" }) }); sessionStorage.setItem("active-interview-id", interviewId); window.location.href = "/interview/complete";
-  }, [ending, interviewId, stopListening]);
+    if (!interviewId || ending) return; setEnding(true); stopListening(); if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel(); streamRef.current?.getTracks().forEach((track) => track.stop()); await fetch("/api/interviews", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ interviewId, status: "completed" }) }); sessionStorage.setItem("active-interview-id", interviewId); router.push("/interview/complete");
+  }, [ending, interviewId, router, stopListening]);
 
   useEffect(() => {
     setSpeechSupported(Boolean(window.SpeechRecognition ?? window.webkitSpeechRecognition)); let active = true;
