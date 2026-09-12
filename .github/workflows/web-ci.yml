@@ -37,8 +37,8 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Test
-        run: pnpm test
+      - name: Tests
+        run: node --test tests/*.test.mjs && pnpm test
 
       - name: Lint
         run: pnpm lint
