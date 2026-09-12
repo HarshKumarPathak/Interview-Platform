@@ -1,187 +1,192 @@
 # Interview Platform
 
-An AI-powered interview simulation platform for realistic, adaptive interview practice across education, placements, government exams, professional hiring, and international use cases.
+An AI-powered interview simulation platform built to make interview practice feel like a real panel: adaptive questioning, realtime voice, camera/microphone sessions, resume-grounded context, evidence-based scoring, recordings, and measurable progress over time.
 
-> **Status:** Realtime MVP is implemented and actively evolving.
+> **Status:** Production-shaped MVP complete. External service credentials are the only deployment-specific requirement.
 
-## What works today
+## What is implemented
 
-- Candidate authentication and profile
-- Resume upload with structured TXT extraction and PDF parser placeholder
-- Interview configuration: type, language, duration, difficulty, panel size
-- Camera and microphone permission check
-- Persistent interview sessions and ordered transcript turns
-- Configuration-driven interview stages and interview-type policies
-- Adaptive follow-up questions based on observable answer gaps
-- Resume-grounded interview questions
-- Real OpenAI Responses API provider with deterministic fallback
-- Interview question metadata: stage, index, role, difficulty, rationale, policy focus
-- Evidence-based interview scoring and result report
-- Live dashboard and interview history
-- LiveKit realtime transport for candidate camera/microphone
-- Realtime AI interviewer agent with adaptive question-engine integration
-- AI interviewer audio playback in the browser
-- Realtime interviewer/candidate turn persistence
-- LiveKit agent staging deployment workflow
+- Candidate authentication, onboarding, editable profile, dashboard, history, and progress analytics
+- PDF and TXT resume extraction with structured candidate context
+- Private S3-compatible resume storage (AWS S3, Cloudflare R2, or MinIO)
+- Configuration-driven interview types, stages, difficulty, language, duration, and panel size
+- Persistent interview state machine with guarded lifecycle transitions
+- Resume-grounded and adaptive question selection
+- LiveKit realtime media transport with browser camera/microphone publishing
+- OpenAI realtime interviewer agent with turn persistence and AI-engine question selection
+- Interview completion flow with durable asynchronous evaluation jobs
+- Evaluation worker with row locking, retries, backoff, idempotent evaluation writes, and failure handling
+- Evidence-based scoring across knowledge, communication, structure, and follow-up behavior
+- Question-level evaluation with evidence, relevance, structure, feedback, and missing elements
+- Full transcript timeline and recruiter-grade result report
+- LiveKit room recording to private S3-compatible object storage
+- Recording lifecycle tracking and secure short-lived playback URLs
+- Recording/evaluation completion states that do not block each other
+- Authenticated candidate ownership checks on interview, evaluation, resume, and recording APIs
+- CI for typecheck, tests, lint, and production builds
+- Database migrations for recording and evaluation-job lifecycle state
 
-## Current limitations
-
-The following are still planned or incomplete: session recording, real PDF text extraction, object storage, asynchronous evaluation workers, true multi-interviewer orchestration, and photorealistic interviewer avatars.
-
-## Realtime interview flow
+## Architecture
 
 ```text
 Candidate Browser
-   │
-   ├── Camera + Microphone
-   │
-   ▼
-Next.js Web App
-   │
-   ├── LiveKit access token + agent dispatch
-   │
-   ▼
-LiveKit Room
-   │
-   ▼
-Realtime Interview Agent
-   │
-   ├── Candidate context
-   ├── Adaptive question engine
-   ├── Realtime voice conversation
-   └── Turn persistence
-   │
-   ▼
-PostgreSQL / Interview APIs
+      │
+      ├── Next.js Web App ─────────────── PostgreSQL
+      │         │                              │
+      │         ├── Auth / Profile             │ sessions / turns / results
+      │         ├── Interview APIs              │
+      │         └── LiveKit token + dispatch    │
+      │                                         │
+      ▼                                         │
+   LiveKit Room                                 │
+      │                                         │
+      ▼                                         │
+Realtime Interview Agent ─── AI Engine ─────────┘
+      │
+      ├── realtime voice
+      ├── candidate context
+      └── adaptive question selection
+
+Interview completion
+      │
+      ▼
+Evaluation Job Queue (PostgreSQL)
+      │
+      ▼
+Evaluation Worker ──> internal evaluation API ──> scored report
+
+LiveKit Egress ──> private S3/R2 ──> short-lived signed playback URL
 ```
 
-The realtime layer is intentionally separated from interview policy and evaluation. LiveKit owns media transport and turn boundaries, the realtime agent owns conversational delivery, and the AI engine remains the source of truth for question selection.
+The realtime layer, interview policy, evaluation, and storage boundaries are intentionally separated. Media transport is handled by LiveKit, conversational delivery by the realtime agent, question selection by the AI engine, evaluation by the worker pipeline, and persistent state by PostgreSQL.
 
-## Vision
+## Local setup
 
-Interview Platform is designed to simulate realistic interviews rather than behave like a static question-and-answer chatbot. Sessions support voice, camera, dynamic follow-ups, adaptive difficulty, structured evaluation, interview history, and eventually multi-interviewer panels with realistic AI interviewers.
+Requirements: Node.js 22+, pnpm 10+, PostgreSQL 17+, and Docker for the local infrastructure.
 
-## AI provider configuration
-
-The AI engine is provider-agnostic. Without provider credentials it uses deterministic interview policies as a safe fallback. To enable real model-generated questions, configure the service environment:
-
-```env
-AI_PROVIDER=openai
-AI_API_KEY=your_api_key
-AI_MODEL=gpt-5.6-luna
-AI_BASE_URL=https://api.openai.com/v1
-AI_TIMEOUT_SECONDS=20
+```bash
+git clone https://github.com/HarshKumarPathak/Interview-Platform.git
+cd Interview-Platform
+pnpm install
+cp .env.example .env.local
+docker compose up -d
 ```
 
-`AI_API_KEY` can also be supplied through `OPENAI_API_KEY`. Never commit API keys to the repository.
+Apply the SQL files in `packages/database/schema.sql` and `packages/database/migrations/` to the configured PostgreSQL database, then start the web application:
 
-The web application talks to the AI engine through its server-side `/api/ai/question` proxy; browser code does not receive the provider key.
-
-## Realtime configuration
-
-The realtime agent requires server-side configuration for LiveKit and the AI provider. Typical deployment variables include:
-
-```env
-LIVEKIT_URL=...
-LIVEKIT_API_KEY=...
-LIVEKIT_API_SECRET=...
-LIVEKIT_AGENT_DEPLOYMENT=...
-LIVEKIT_AGENT_SHARED_SECRET=...
-WEB_APP_URL=...
-AI_ENGINE_URL=...
-OPENAI_API_KEY=...
-OPENAI_REALTIME_MODEL=gpt-realtime
+```bash
+pnpm dev
 ```
 
-Keep all secrets in local environment files or GitHub Environment secrets. Never commit credentials to the repository.
+Run the background evaluator separately:
 
-## Planned Architecture
+```bash
+pnpm --filter @interview-platform/evaluation-worker start
+```
+
+## Production configuration
+
+The application keeps provider credentials server-side. Configure the values in `.env.example` in the deployment environment rather than committing secrets.
+
+Required for the complete hosted experience:
+
+- PostgreSQL for application state
+- LiveKit Cloud or a self-hosted LiveKit deployment
+- OpenAI API access for realtime interviewing
+- S3-compatible private object storage for resumes and recordings
+- `EVALUATION_WORKER_SECRET` shared only by the web app and evaluation worker
+
+If object storage credentials are absent, resume upload and recording storage are intentionally unavailable instead of silently storing private files in the application filesystem.
+
+## Database lifecycle
+
+The current schema includes interview status transitions, recording lifecycle fields, and durable evaluation jobs. Apply migrations in order:
 
 ```text
-Candidate
-   │
-   ▼
-Next.js Web App ──────── PostgreSQL
-   │                        │
-   │ LiveKit/WebRTC         │ Candidate/session data
-   ▼                        │
-LiveKit ─────────────── AI Engine
-   │                        │
-   │ realtime media         ├── Interview Orchestrator
-   ▼                        ├── Interviewer Agent(s)
-Realtime AI Interview      ├── Context Engine
-                            └── Evaluation Pipeline
-                                     │
-                                     ▼
-                              Async Evaluation
-                                     │
-                                     ▼
-                                Result Report
+packages/database/migrations/001_interview_recordings.sql
+packages/database/migrations/002_evaluation_jobs.sql
 ```
 
-## Repository Structure
+The evaluation queue is durable: jobs are claimed with PostgreSQL row locking, retried with delayed availability, and marked failed after the configured attempt limit.
+
+## Realtime interview flow
+
+1. Candidate completes the device check and enters an interview.
+2. The server issues a scoped LiveKit token and dispatches the realtime interview agent.
+3. Candidate audio/video remains on the realtime media path; the browser never receives provider API secrets.
+4. The agent loads authenticated candidate context and requests the next question from the interview engine.
+5. Interviewer/candidate turns are persisted in sequence.
+6. Room recording starts when the media session is established and is finalized independently of evaluation.
+7. Completion creates an evaluation job and immediately returns a processing state.
+8. The worker evaluates the persisted transcript and writes an idempotent report.
+
+## Privacy and security
+
+- Candidate-owned resources are authorized server-side.
+- Provider and storage credentials stay in server environments.
+- Resume and recording objects are private by default.
+- Recording playback uses short-lived signed URLs rather than public object URLs.
+- LiveKit webhook/egress state is treated as server-side lifecycle data.
+- Upload size and MIME-type checks protect the resume ingestion path.
+- Evaluation scores are based on observable interview responses; the UI does not present personality or inferred-trait scoring as fact.
+- Recording requires the deployment's configured storage path; deployments should pair recording with their applicable consent and retention policy.
+
+## Repository structure
 
 ```text
 apps/
-  web/                 # Candidate-facing web application
+  web/                 # Candidate-facing Next.js application
   admin/               # Admin/moderation application
-
 services/
-  ai-engine/          # AI orchestration and provider abstraction
-  realtime-agent/     # LiveKit realtime interview agent
-  interview-agent/    # Interview-agent workspace/docs
-  evaluation-worker/  # Async transcript/evaluation pipeline
-
+  ai-engine/           # Question generation and provider abstraction
+  realtime-agent/      # LiveKit realtime interviewer
+  interview-agent/     # Agent workspace/documentation boundary
+  evaluation-worker/   # Durable asynchronous evaluation worker
 packages/
-  ai-core/            # Shared AI abstractions and prompts
-  database/            # Database schema and data access
+  ai-core/             # Shared AI abstractions/prompts
+  database/            # PostgreSQL schema, migrations, and data access
   interview-types/     # Configuration-driven interview definitions
-  ui/                  # Shared UI components
-  shared/              # Shared types, utilities, constants
-
-docs/
-  architecture/       # Technical architecture decisions
-  product/             # Product requirements and user flows
-  api/                 # API contracts
-
-infra/                 # Local/deployment infrastructure
-tests/                 # Cross-service/integration tests
+  ui/                  # Shared UI foundation
+  shared/              # Shared types and utilities
+docs/                  # Architecture, product, API, operations
+infra/                 # Infrastructure/deployment assets
+tests/                 # Cross-service test assets
 ```
 
-## Engineering Principles
+## Engineering principles
 
-1. **Realtime first:** voice interaction should feel like a real interview.
-2. **Configuration over hardcoding:** interview types, stages, rules, and panels are data-driven.
-3. **Small AI agents:** orchestration, interviewing, context, and evaluation have separate responsibilities.
-4. **Provider agnostic:** AI providers should be replaceable without rewriting product logic.
-5. **Evidence-based evaluation:** reports should be grounded in the candidate's transcript, answers, and observable communication behavior.
-6. **Privacy by design:** recording, camera analysis, and retention require clear consent and user controls.
-7. **Cost visibility:** every AI session should be measurable for future scale and free-tier economics.
-8. **Production-minded MVP:** typed interfaces, validation, tests, CI, logging, and documentation are part of the foundation.
+1. Realtime first: voice interaction should feel like an interview, not a chat form.
+2. Configuration over hardcoding: interview rules and stages are data-driven.
+3. Small service boundaries: media, interviewing, AI policy, evaluation, and persistence have distinct responsibilities.
+4. Provider agnostic: model access is isolated behind service boundaries.
+5. Evidence-based evaluation: scores reference observable answer quality and transcript evidence.
+6. Privacy by design: private storage, authenticated ownership, and explicit recording lifecycle.
+7. Failure-aware architecture: durable jobs, retries, idempotency, and independent recording/evaluation lifecycles.
+8. Production-minded delivery: typed code, validation, CI, migrations, documentation, and operational configuration are part of the product.
 
-## Development Status
+## Development status
 
 | Area | Status |
 | --- | --- |
-| Repository foundation | ✅ Implemented |
-| Web application | 🚧 MVP implemented |
-| Authentication | ✅ Implemented |
-| Candidate profile | ✅ Implemented |
-| Resume parsing | 🚧 TXT implemented / PDF pending |
-| Interview room | 🚧 Realtime MVP |
-| Interview policy engine | ✅ Implemented |
-| Real LLM interviewer | ✅ Provider integrated / env required |
-| Evidence-based evaluation | ✅ Implemented |
-| Realtime voice | ✅ LiveKit transport + realtime agent |
-| Session recording | ⏳ Planned |
-| Async evaluation worker | ⏳ Planned |
-| Multi-interviewer panel | 🔮 Planned |
-| Photorealistic AI interviewer | 🔮 Planned |
+| Repository foundation | ✅ Complete |
+| Web application | ✅ Complete MVP |
+| Authentication/profile | ✅ Complete |
+| Resume parsing | ✅ PDF + TXT |
+| Private resume storage | ✅ S3-compatible |
+| Interview policy engine | ✅ Complete |
+| Realtime voice | ✅ LiveKit + realtime agent |
+| Adaptive follow-ups | ✅ Complete |
+| Evidence-based evaluation | ✅ Complete |
+| Async evaluation worker | ✅ Complete |
+| Session recording | ✅ LiveKit Egress + private storage |
+| Secure recording playback | ✅ Short-lived signed URLs |
+| Progress analytics | ✅ Complete |
+| CI | ✅ Typecheck + test + lint + build |
+| Multi-interviewer orchestration | 🔜 Extension point |
+| Photorealistic avatars | 🔜 Extension point |
 
 ## License
 
-MIT License — see [LICENSE](LICENSE).
+MIT License — see `LICENSE`.
 
----
-
-Built as a serious, extensible AI engineering project with an emphasis on realistic interview simulation and measurable candidate improvement.
+Built as a serious AI engineering project focused on realistic interview simulation, observable evaluation, reliability, and measurable candidate improvement.
