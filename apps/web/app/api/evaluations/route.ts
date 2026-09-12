@@ -39,29 +39,49 @@ function evaluate(turns: Turn[]) {
   return { overall, knowledge, communication, structure, followUp, strengths, weaknesses, recommendations, flags: [] as string[], questions };
 }
 async function candidateForSession() { const session = await getSession(); if (!session) return null; const result = await query<{ id: string }>("select id from candidates where user_id = $1", [session.userId]); return result.rows[0]?.id ?? null; }
+function isWorkerRequest(request: Request) { const secret = process.env.EVALUATION_WORKER_SECRET; return Boolean(secret && request.headers.get("x-evaluation-worker-secret") === secret); }
 
 export async function POST(request: Request) {
   try {
-    const candidateId = await candidateForSession();
-    if (!candidateId) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-    const { interviewId } = await request.json();
+    const worker = isWorkerRequest(request);
+    const body = await request.json();
+    const interviewId = String(body?.interviewId ?? "");
     if (!interviewId) return NextResponse.json({ error: "interviewId is required" }, { status: 400 });
-    const ownership = await query<{ id: string; status: string }>("select id, status from interviews where id = $1 and candidate_id = $2", [String(interviewId), candidateId]);
+
+    let candidateId: string | null = null;
+    if (worker) {
+      const result = await query<{ candidate_id: string }>("select candidate_id from interviews where id = $1", [interviewId]);
+      candidateId = result.rows[0]?.candidate_id ?? null;
+    } else {
+      candidateId = await candidateForSession();
+    }
+    if (!candidateId) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+
+    const ownership = await query<{ id: string; status: string }>("select id, status from interviews where id = $1 and candidate_id = $2", [interviewId, candidateId]);
     const interview = ownership.rows[0];
     if (!interview) return NextResponse.json({ error: "Interview not found" }, { status: 404 });
-    if (interview.status === "evaluated") {
-      const existing = await query("select * from evaluations where interview_id = $1", [String(interviewId)]);
+    if (!worker && interview.status === "evaluated") {
+      const existing = await query("select * from evaluations where interview_id = $1", [interviewId]);
       const questions = existing.rows[0] ? await query("select question_number, interviewer_role, stage, question, answer, score, evidence_score, structure_score, relevance_score, feedback, missing_elements, follow_up_reason from question_evaluations where evaluation_id = $1 order by question_number asc", [existing.rows[0].id]) : { rows: [] };
       return NextResponse.json({ evaluation: existing.rows[0] ?? null, questions: questions.rows, status: "evaluated" });
     }
-    await query("update interviews set status = 'evaluating' where id = $1 and candidate_id = $2 and status in ('completed', 'evaluating')", [String(interviewId), candidateId]);
-    const turns = await query<Turn>("select speaker, content, role, metadata from interview_turns where interview_id = $1 order by sequence_no asc", [String(interviewId)]);
+
+    if (!worker) {
+      if (!["completed", "evaluating"].includes(interview.status)) return NextResponse.json({ error: "Interview must be completed before evaluation" }, { status: 409 });
+      await query("update interviews set status = 'evaluating' where id = $1 and candidate_id = $2 and status = 'completed'", [interviewId, candidateId]);
+      const queued = await query<{ id: string }>("insert into evaluation_jobs (interview_id) values ($1) on conflict (interview_id) where status in ('queued','processing') do nothing returning id", [interviewId]);
+      return NextResponse.json({ evaluation: null, questions: [], status: "evaluating", queued: Boolean(queued.rows[0]) }, { status: 202 });
+    }
+
+    await query("update interviews set status = 'evaluating' where id = $1 and candidate_id = $2 and status in ('completed', 'evaluating')", [interviewId, candidateId]);
+    const turns = await query<Turn>("select speaker, content, role, metadata from interview_turns where interview_id = $1 order by sequence_no asc", [interviewId]);
     const result = evaluate(turns.rows);
-    const saved = await query(`insert into evaluations (interview_id, overall_score, knowledge_score, communication_score, structure_score, follow_up_score, strengths, weaknesses, recommendations, flags) values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb) on conflict (interview_id) do update set overall_score=excluded.overall_score, knowledge_score=excluded.knowledge_score, communication_score=excluded.communication_score, structure_score=excluded.structure_score, follow_up_score=excluded.follow_up_score, strengths=excluded.strengths, weaknesses=excluded.weaknesses, recommendations=excluded.recommendations, flags=excluded.flags, created_at=now() returning *`, [String(interviewId), result.overall, result.knowledge, result.communication, result.structure, result.followUp, JSON.stringify(result.strengths), JSON.stringify(result.weaknesses), JSON.stringify(result.recommendations), JSON.stringify(result.flags)]);
+    const saved = await query(`insert into evaluations (interview_id, overall_score, knowledge_score, communication_score, structure_score, follow_up_score, strengths, weaknesses, recommendations, flags) values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb) on conflict (interview_id) do update set overall_score=excluded.overall_score, knowledge_score=excluded.knowledge_score, communication_score=excluded.communication_score, structure_score=excluded.structure_score, follow_up_score=excluded.follow_up_score, strengths=excluded.strengths, weaknesses=excluded.weaknesses, recommendations=excluded.recommendations, flags=excluded.flags, created_at=now() returning *`, [interviewId, result.overall, result.knowledge, result.communication, result.structure, result.followUp, JSON.stringify(result.strengths), JSON.stringify(result.weaknesses), JSON.stringify(result.recommendations), JSON.stringify(result.flags)]);
     const evaluationId = saved.rows[0].id as string;
     await query("delete from question_evaluations where evaluation_id = $1", [evaluationId]);
     for (const item of result.questions) await query(`insert into question_evaluations (evaluation_id, question_number, interviewer_role, stage, question, answer, score, evidence_score, structure_score, relevance_score, feedback, missing_elements, follow_up_reason) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13)`, [evaluationId, item.questionNumber, item.interviewerRole, item.stage, item.question, item.answer, item.score, item.evidenceScore, item.structureScore, item.relevanceScore, item.feedback, JSON.stringify(item.missingElements), item.followUpReason]);
-    await query("update interviews set status = 'evaluated' where id = $1 and candidate_id = $2 and status = 'evaluating'", [String(interviewId), candidateId]);
+    await query("update interviews set status = 'evaluated' where id = $1 and candidate_id = $2 and status = 'evaluating'", [interviewId, candidateId]);
+    if (worker) await query("update evaluation_jobs set status='completed', updated_at=now(), last_error=null where interview_id=$1 and status='processing'", [interviewId]);
     return NextResponse.json({ evaluation: saved.rows[0], questions: result.questions, status: "evaluated" });
   } catch (error) { console.error("evaluation failed", error); return NextResponse.json({ error: "Evaluation failed" }, { status: 503 }); }
 }
