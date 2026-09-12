@@ -1,0 +1,35 @@
+name: Realtime Agent Staging Deploy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: realtime-agent-staging
+    concurrency:
+      group: realtime-agent-staging
+      cancel-in-progress: true
+    defaults:
+      run:
+        working-directory: services/realtime-agent
+    env:
+      LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
+      LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+      LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install LiveKit CLI
+        run: curl -sSL https://get.livekit.io/cli | bash
+
+      - name: Validate LiveKit credentials
+        run: |
+          test -n "$LIVEKIT_URL"
+          test -n "$LIVEKIT_API_KEY"
+          test -n "$LIVEKIT_API_SECRET"
+
+      - name: Deploy staging agent
+        run: lk agent deploy --deployment staging
