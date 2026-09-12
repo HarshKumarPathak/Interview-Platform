@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { query } from "@interview-platform/database";
 import { getSession } from "../../../../../lib/auth";
 import { createLiveKitRoomRecordToken } from "../../../../../lib/livekit-token";
@@ -65,10 +65,9 @@ function signedPlaybackUrl(key: string) {
   });
   const sortedQuery = [...params.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([keyName, value]) => `${awsEncode(keyName)}=${awsEncode(value)}`).join("&");
   const canonicalRequest = ["GET", path, sortedQuery, `host:${host}\n`, "host", "UNSIGNED-PAYLOAD"].join("\n");
-  const stringToSign = ["AWS4-HMAC-SHA256", amzDate, credentialScope, hexHmac(hexHmac(hmac(hmac(`AWS4${config.secret}`, dateStamp), config.region), "s3"), "aws4_request"), canonicalRequest].join("\n");
+  const stringToSign = ["AWS4-HMAC-SHA256", amzDate, credentialScope, createHash("sha256").update(canonicalRequest).digest("hex")].join("\n");
   const signingKey = hmac(hmac(hmac(`AWS4${config.secret}`, dateStamp), config.region), "s3");
-  const signature = hexHmac(signingKey, stringToSign);
-  params.set("X-Amz-Signature", signature);
+  params.set("X-Amz-Signature", hexHmac(signingKey, stringToSign));
   return `${endpoint.origin}${path}?${params.toString()}`;
 }
 
