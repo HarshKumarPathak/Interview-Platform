@@ -4,6 +4,14 @@ function base64url(value: string) {
   return Buffer.from(value).toString("base64url");
 }
 
+function signLiveKitJwt(payload: Record<string, unknown>, apiKey: string, apiSecret: string) {
+  const header = base64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const encodedPayload = base64url(JSON.stringify(payload));
+  const unsigned = `${header}.${encodedPayload}`;
+  const signature = createHmac("sha256", apiSecret).update(unsigned).digest("base64url");
+  return `${unsigned}.${signature}`;
+}
+
 export function createLiveKitToken(input: {
   apiKey: string;
   apiSecret: string;
@@ -15,8 +23,7 @@ export function createLiveKitToken(input: {
   const now = Math.floor(Date.now() / 1000);
   const ttl = input.ttlSeconds ?? 60 * 60;
   const deployment = process.env.LIVEKIT_AGENT_DEPLOYMENT?.trim();
-  const header = base64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-  const payload = base64url(JSON.stringify({
+  return signLiveKitJwt({
     iss: input.apiKey,
     sub: input.identity,
     name: input.name ?? input.identity,
@@ -38,8 +45,26 @@ export function createLiveKitToken(input: {
         },
       ],
     },
-  }));
-  const unsigned = `${header}.${payload}`;
-  const signature = createHmac("sha256", input.apiSecret).update(unsigned).digest("base64url");
-  return `${unsigned}.${signature}`;
+  }, input.apiKey, input.apiSecret);
+}
+
+export function createLiveKitRoomRecordToken(input: {
+  apiKey: string;
+  apiSecret: string;
+  room: string;
+  ttlSeconds?: number;
+}) {
+  const now = Math.floor(Date.now() / 1000);
+  const ttl = input.ttlSeconds ?? 10 * 60;
+  return signLiveKitJwt({
+    iss: input.apiKey,
+    sub: `recording-service-${input.room}`,
+    nbf: now - 5,
+    iat: now,
+    exp: now + ttl,
+    video: {
+      roomRecord: true,
+      room: input.room,
+    },
+  }, input.apiKey, input.apiSecret);
 }
