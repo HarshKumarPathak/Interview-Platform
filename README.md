@@ -1,8 +1,53 @@
 # Interview Platform
 
+[![Web CI](https://github.com/HarshKumarPathak/Interview-Platform/actions/workflows/web-ci.yml/badge.svg)](https://github.com/HarshKumarPathak/Interview-Platform/actions/workflows/web-ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 An AI-powered interview simulation platform built to make interview practice feel like a real panel: adaptive questioning, realtime voice, camera/microphone sessions, resume-grounded context, evidence-based scoring, recordings, and measurable progress over time.
 
-> **Status:** Production-shaped MVP complete. External service credentials are the only deployment-specific requirement.
+> **Status:** Production-shaped MVP complete. External provider credentials are deployment-specific; the application, service boundaries, persistence, evaluation pipeline, recording lifecycle, documentation, and CI are implemented.
+
+## Why this project stands out
+
+This is not a chat wrapper around an LLM. The platform is designed as a small production system with a realtime media path, an interview policy layer, durable session state, asynchronous evaluation, private object storage, and recruiter-oriented reporting.
+
+### Engineering signals
+
+- **Realtime systems:** LiveKit/WebRTC media transport with a dedicated realtime interviewer agent
+- **AI orchestration:** resume-aware context + configuration-driven question selection + adaptive follow-ups
+- **Async backend:** PostgreSQL-backed evaluation queue with row locking, retries, backoff, and idempotency
+- **Data lifecycle:** interview state machine, transcript persistence, evaluation lifecycle, recording lifecycle
+- **Security:** authenticated ownership checks, server-side secrets, private storage, signed playback URLs
+- **Observability mindset:** explicit failure states and independent recording/evaluation completion paths
+- **Testing/CI:** repository integrity tests plus workspace typecheck, test, lint, and production build gates
+
+## Product flow
+
+```text
+Profile / Resume
+      ↓
+Interview Configuration
+      ↓
+Camera + Microphone Check
+      ↓
+Realtime AI Interview
+      ├── Voice interaction
+      ├── Resume-aware context
+      ├── Adaptive follow-ups
+      └── Persistent transcript
+      ↓
+Interview Completion
+      ├── Recording finalization
+      └── Durable evaluation job
+      ↓
+Recruiter-grade Evaluation Report
+      ├── Overall score
+      ├── Knowledge / Communication / Structure / Follow-up
+      ├── Question-level evidence
+      ├── Transcript timeline
+      └── Recording playback
+      ↓
+History + Progress Analytics
+```
 
 ## What is implemented
 
