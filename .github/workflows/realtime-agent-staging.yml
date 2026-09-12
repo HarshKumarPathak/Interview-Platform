@@ -17,6 +17,12 @@ jobs:
       LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
       LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
       LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+      SECRET_LIST: >-
+        OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},
+        WEB_APP_URL=${{ secrets.WEB_APP_URL }},
+        LIVEKIT_AGENT_SHARED_SECRET=${{ secrets.LIVEKIT_AGENT_SHARED_SECRET }},
+        AI_ENGINE_URL=${{ secrets.AI_ENGINE_URL }},
+        OPENAI_REALTIME_MODEL=${{ secrets.OPENAI_REALTIME_MODEL }}
 
     steps:
       - name: Checkout
@@ -25,11 +31,16 @@ jobs:
       - name: Install LiveKit CLI
         run: curl -sSL https://get.livekit.io/cli | bash
 
-      - name: Validate LiveKit credentials
+      - name: Validate deployment credentials
         run: |
           test -n "$LIVEKIT_URL"
           test -n "$LIVEKIT_API_KEY"
           test -n "$LIVEKIT_API_SECRET"
+          test -n "${{ secrets.OPENAI_API_KEY }}"
+          test -n "${{ secrets.WEB_APP_URL }}"
+          test -n "${{ secrets.LIVEKIT_AGENT_SHARED_SECRET }}"
+          test -n "${{ secrets.AI_ENGINE_URL }}"
+          test -n "${{ secrets.OPENAI_REALTIME_MODEL }}"
 
       - name: Deploy staging agent
         run: lk agent deploy --deployment staging
