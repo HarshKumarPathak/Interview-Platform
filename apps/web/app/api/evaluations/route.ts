@@ -4,10 +4,8 @@ import { getSession } from "../../../lib/auth";
 
 type Turn = { speaker: string; content: string; role: string | null; metadata?: Record<string, unknown> | null };
 type QuestionEvaluation = { questionNumber: number; interviewerRole: string; stage: string; question: string; answer: string; score: number; evidenceScore: number; structureScore: number; relevanceScore: number; feedback: string; missingElements: string[]; followUpReason: string | null };
-
 function clamp(value: number) { return Math.max(0, Math.min(100, Math.round(value * 10) / 10)); }
 function signal(text: string, patterns: RegExp[]) { return patterns.some((pattern) => pattern.test(text)); }
-
 function evaluateQuestion(question: string, answer: string, role: string | null, metadata?: Record<string, unknown> | null, questionNumber = 1): QuestionEvaluation {
   const words = answer.split(/\s+/).filter(Boolean).length;
   const evidence = signal(answer, [/example/i, /result/i, /impact/i, /metric/i, /%/, /users?/i, /latency/i, /revenue/i, /tested/i, /measured/i]) ? 78 : words >= 70 ? 58 : 35;
@@ -19,30 +17,12 @@ function evaluateQuestion(question: string, answer: string, role: string | null,
   if (structure < 60) missing.push("clear answer structure and reasoning");
   if (relevance < 60) missing.push("a direct connection to the question");
   const followUpReason = typeof metadata?.rationale === "string" ? metadata.rationale : null;
-  const feedback = missing.length === 0
-    ? "Strong response: you connected the decision to reasoning and supporting evidence. Make the outcome even more specific when possible."
-    : `The answer is usable, but it would be stronger with ${missing.join(", ")}.`;
+  const feedback = missing.length === 0 ? "Strong response: you connected the decision to reasoning and supporting evidence. Make the outcome even more specific when possible." : `The answer is usable, but it would be stronger with ${missing.join(", ")}.`;
   return { questionNumber, interviewerRole: role ?? "interviewer", stage: typeof metadata?.stage === "string" ? metadata.stage : "unknown", question, answer, score, evidenceScore: clamp(evidence), structureScore: clamp(structure), relevanceScore: clamp(relevance), feedback, missingElements: missing, followUpReason };
 }
-
-function pairTurns(turns: Turn[]) {
-  const pairs: Array<{ question: Turn; answer: Turn }> = [];
-  for (let index = 0; index < turns.length - 1; index += 1) {
-    const question = turns[index];
-    const answer = turns[index + 1];
-    // Only evaluate a candidate response when it immediately follows the
-    // interviewer turn. This prevents a later response from being attached to
-    // the wrong question when a panel or system turn appears in between.
-    if (question.speaker === "interviewer" && answer.speaker === "candidate") {
-      pairs.push({ question, answer });
-    }
-  }
-  return pairs;
-}
-
+function pairTurns(turns: Turn[]) { const pairs: Array<{ question: Turn; answer: Turn }> = []; for (let index = 0; index < turns.length - 1; index += 1) { const question = turns[index]; const answer = turns[index + 1]; if (question.speaker === "interviewer" && answer.speaker === "candidate") pairs.push({ question, answer }); } return pairs; }
 function evaluate(turns: Turn[]) {
-  const candidateTurns = turns.filter((turn) => turn.speaker === "candidate");
-  const answers = candidateTurns.map((turn) => turn.content.trim()).filter(Boolean);
+  const answers = turns.filter((turn) => turn.speaker === "candidate").map((turn) => turn.content.trim()).filter(Boolean);
   const avgWords = answers.length ? answers.reduce((sum, answer) => sum + answer.split(/\s+/).length, 0) / answers.length : 0;
   const detailSignals = answers.filter((answer) => /because|therefore|trade[- ]?off|example|measured|result|impact|implemented|tested/i.test(answer)).length;
   const structureSignals = answers.filter((answer) => /first|second|finally|then|problem|approach|result|situation|task|action/i.test(answer)).length;
@@ -58,7 +38,6 @@ function evaluate(turns: Turn[]) {
   const questions = pairTurns(turns).map(({ question, answer }, index) => evaluateQuestion(question.content, answer.content, question.role, question.metadata, index + 1));
   return { overall, knowledge, communication, structure, followUp, strengths, weaknesses, recommendations, flags: [] as string[], questions };
 }
-
 async function candidateForSession() { const session = await getSession(); if (!session) return null; const result = await query<{ id: string }>("select id from candidates where user_id = $1", [session.userId]); return result.rows[0]?.id ?? null; }
 
 export async function POST(request: Request) {
@@ -67,16 +46,23 @@ export async function POST(request: Request) {
     if (!candidateId) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     const { interviewId } = await request.json();
     if (!interviewId) return NextResponse.json({ error: "interviewId is required" }, { status: 400 });
-    const ownership = await query<{ id: string }>("select id from interviews where id = $1 and candidate_id = $2", [String(interviewId), candidateId]);
-    if (!ownership.rowCount) return NextResponse.json({ error: "Interview not found" }, { status: 404 });
+    const ownership = await query<{ id: string; status: string }>("select id, status from interviews where id = $1 and candidate_id = $2", [String(interviewId), candidateId]);
+    const interview = ownership.rows[0];
+    if (!interview) return NextResponse.json({ error: "Interview not found" }, { status: 404 });
+    if (interview.status === "evaluated") {
+      const existing = await query("select * from evaluations where interview_id = $1", [String(interviewId)]);
+      const questions = existing.rows[0] ? await query("select question_number, interviewer_role, stage, question, answer, score, evidence_score, structure_score, relevance_score, feedback, missing_elements, follow_up_reason from question_evaluations where evaluation_id = $1 order by question_number asc", [existing.rows[0].id]) : { rows: [] };
+      return NextResponse.json({ evaluation: existing.rows[0] ?? null, questions: questions.rows, status: "evaluated" });
+    }
+    await query("update interviews set status = 'evaluating' where id = $1 and candidate_id = $2 and status in ('completed', 'evaluating')", [String(interviewId), candidateId]);
     const turns = await query<Turn>("select speaker, content, role, metadata from interview_turns where interview_id = $1 order by sequence_no asc", [String(interviewId)]);
     const result = evaluate(turns.rows);
     const saved = await query(`insert into evaluations (interview_id, overall_score, knowledge_score, communication_score, structure_score, follow_up_score, strengths, weaknesses, recommendations, flags) values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb) on conflict (interview_id) do update set overall_score=excluded.overall_score, knowledge_score=excluded.knowledge_score, communication_score=excluded.communication_score, structure_score=excluded.structure_score, follow_up_score=excluded.follow_up_score, strengths=excluded.strengths, weaknesses=excluded.weaknesses, recommendations=excluded.recommendations, flags=excluded.flags, created_at=now() returning *`, [String(interviewId), result.overall, result.knowledge, result.communication, result.structure, result.followUp, JSON.stringify(result.strengths), JSON.stringify(result.weaknesses), JSON.stringify(result.recommendations), JSON.stringify(result.flags)]);
     const evaluationId = saved.rows[0].id as string;
     await query("delete from question_evaluations where evaluation_id = $1", [evaluationId]);
     for (const item of result.questions) await query(`insert into question_evaluations (evaluation_id, question_number, interviewer_role, stage, question, answer, score, evidence_score, structure_score, relevance_score, feedback, missing_elements, follow_up_reason) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13)`, [evaluationId, item.questionNumber, item.interviewerRole, item.stage, item.question, item.answer, item.score, item.evidenceScore, item.structureScore, item.relevanceScore, item.feedback, JSON.stringify(item.missingElements), item.followUpReason]);
-    await query("update interviews set status = 'evaluated' where id = $1 and candidate_id = $2", [String(interviewId), candidateId]);
-    return NextResponse.json({ evaluation: saved.rows[0], questions: result.questions });
+    await query("update interviews set status = 'evaluated' where id = $1 and candidate_id = $2 and status = 'evaluating'", [String(interviewId), candidateId]);
+    return NextResponse.json({ evaluation: saved.rows[0], questions: result.questions, status: "evaluated" });
   } catch (error) { console.error("evaluation failed", error); return NextResponse.json({ error: "Evaluation failed" }, { status: 503 }); }
 }
 
@@ -87,8 +73,12 @@ export async function GET(request: Request) {
     const interviewId = new URL(request.url).searchParams.get("interviewId");
     if (!interviewId) return NextResponse.json({ error: "interviewId is required" }, { status: 400 });
     const result = await query(`select e.* from evaluations e join interviews i on i.id = e.interview_id where e.interview_id = $1 and i.candidate_id = $2`, [interviewId, candidateId]);
-    if (!result.rows[0]) return NextResponse.json({ error: "Evaluation not found" }, { status: 404 });
+    if (!result.rows[0]) {
+      const state = await query<{ status: string }>("select status from interviews where id = $1 and candidate_id = $2", [interviewId, candidateId]);
+      if (!state.rows[0]) return NextResponse.json({ error: "Interview not found" }, { status: 404 });
+      return NextResponse.json({ evaluation: null, questions: [], status: state.rows[0].status }, { status: 200 });
+    }
     const questions = await query("select question_number, interviewer_role, stage, question, answer, score, evidence_score, structure_score, relevance_score, feedback, missing_elements, follow_up_reason from question_evaluations where evaluation_id = $1 order by question_number asc", [result.rows[0].id]);
-    return NextResponse.json({ evaluation: result.rows[0], questions: questions.rows });
+    return NextResponse.json({ evaluation: result.rows[0], questions: questions.rows, status: "evaluated" });
   } catch (error) { console.error("evaluation fetch failed", error); return NextResponse.json({ error: "Database is unavailable" }, { status: 503 }); }
 }
