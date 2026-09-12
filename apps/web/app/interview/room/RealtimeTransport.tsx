@@ -39,27 +39,32 @@ export default function RealtimeTransport({ interviewId, stream, muted, onStatus
 
   useEffect(() => {
     if (!interviewId || !stream) return;
+    const currentInterviewId = interviewId;
     const activeStream = stream; let active = true; let room: LiveKitRoom | null = null; let client: LiveKitClient | null = null; const remoteAudioElements: HTMLMediaElement[] = [];
     const setTransportStatus = (next: "connecting" | "connected" | "unavailable") => { const label = next === "connected" ? "Realtime voice: connected" : next === "unavailable" ? "Realtime voice: unavailable · text fallback active" : "Realtime voice: connecting…"; setStatus(label); onStatusRef.current?.(next); };
 
     async function connect() {
       setTransportStatus("connecting");
       try {
-        const tokenResponse = await fetch("/api/livekit/token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ interviewId }) });
+        const tokenResponse = await fetch("/api/livekit/token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ interviewId: currentInterviewId }) });
         if (!tokenResponse.ok) throw new Error("Realtime voice is not configured");
-        const { token, serverUrl } = await tokenResponse.json(); client = await loadLiveKitClient(); if (!active) return;
+        const payload = await tokenResponse.json() as { token?: unknown; serverUrl?: unknown };
+        const token = typeof payload.token === "string" ? payload.token : null;
+        const serverUrl = typeof payload.serverUrl === "string" ? payload.serverUrl : null;
+        if (!token || !serverUrl) throw new Error("LiveKit token response is invalid");
+        client = await loadLiveKitClient(); if (!active) return;
         room = new client.Room({ adaptiveStream: true, dynacast: true }); roomRef.current = room;
         const onTrackSubscribed = (...args: unknown[]) => { const track = args[0] as { kind?: string; attach?: () => HTMLMediaElement } | undefined; if (!track || track.kind !== client?.Track.Kind.Audio || !track.attach) return; const element = track.attach(); element.autoplay = true; element.setAttribute("aria-label", "AI interviewer audio"); document.body.appendChild(element); remoteAudioElements.push(element); };
         room.on(client.RoomEvent.TrackSubscribed, onTrackSubscribed); await room.connect(serverUrl, token);
         const audioTrack = activeStream.getAudioTracks()[0]; const videoTrack = activeStream.getVideoTracks()[0]; if (!audioTrack || !videoTrack) throw new Error("Camera or microphone track unavailable");
         await room.localParticipant.publishTrack(videoTrack, { source: "camera", simulcast: true }); await room.localParticipant.publishTrack(audioTrack, { source: "microphone" }); await room.localParticipant.setMicrophoneEnabled(!mutedRef.current);
         if (!active) return;
-        await controlRecording(interviewId, "start"); recordingStartedRef.current = true; setTransportStatus("connected");
+        await controlRecording(currentInterviewId, "start"); recordingStartedRef.current = true; setTransportStatus("connected");
       } catch (error) { console.warn("LiveKit realtime transport unavailable", error); room?.disconnect(); roomRef.current = null; if (active) setTransportStatus("unavailable"); }
     }
 
     void connect();
-    return () => { active = false; if (recordingStartedRef.current) { void controlRecording(interviewId, "stop", true); recordingStartedRef.current = false; } room?.disconnect(); if (roomRef.current === room) roomRef.current = null; for (const element of remoteAudioElements) element.remove(); };
+    return () => { active = false; if (recordingStartedRef.current) { void controlRecording(currentInterviewId, "stop", true); recordingStartedRef.current = false; } room?.disconnect(); if (roomRef.current === room) roomRef.current = null; for (const element of remoteAudioElements) element.remove(); };
   }, [interviewId, stream]);
 
   return <span className="room-realtime-status" aria-live="polite">{status}</span>;
