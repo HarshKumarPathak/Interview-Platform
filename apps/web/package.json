@@ -7,11 +7,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.873.0",
     "@interview-platform/database": "workspace:*",
     "next": "^16.3.3",
+    "pdf-parse": "^2.4.5",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
