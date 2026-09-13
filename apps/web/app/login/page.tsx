@@ -18,7 +18,7 @@ export default function LoginPage() {
     const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
     const body = mode === "login"
       ? { email: data.get("email"), password: data.get("password") }
-      : { name: data.get("displayName"), email: data.get("email"), password: data.get("password") };
+      : { displayName: data.get("displayName"), email: data.get("email"), password: data.get("password") };
 
     try {
       const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
