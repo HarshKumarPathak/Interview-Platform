@@ -1,10 +1,12 @@
 import { headers } from "next/headers";
+import { isIP } from "node:net";
 import { NextResponse } from "next/server";
 import { query } from "@interview-platform/database";
 import { createSession, verifyPassword } from "../../../../lib/auth";
 
 function getClientIp(headerValue: string | null) {
-  return headerValue?.split(",")[0]?.trim() || null;
+  const candidate = headerValue?.split(",")[0]?.trim() || null;
+  return candidate && isIP(candidate) ? candidate : null;
 }
 
 export async function POST(request: Request) {
@@ -24,11 +26,12 @@ export async function POST(request: Request) {
     );
 
     const requestHeaders = await headers();
-    const ipAddress = getClientIp(requestHeaders.get("x-forwarded-for")) ?? requestHeaders.get("x-real-ip");
+    const forwardedIp = getClientIp(requestHeaders.get("x-forwarded-for"));
+    const realIp = getClientIp(requestHeaders.get("x-real-ip"));
     const userAgent = requestHeaders.get("user-agent");
     await query(
       `insert into login_events (user_id, ip_address, user_agent) values ($1, $2::inet, $3)`,
-      [user.id, ipAddress || null, userAgent || null],
+      [user.id, forwardedIp ?? realIp, userAgent || null],
     );
 
     await createSession(user.id);
