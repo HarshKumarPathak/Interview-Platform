@@ -11,6 +11,7 @@ create table if not exists users (
   id uuid primary key default gen_random_uuid(),
   email text not null unique,
   password_hash text not null,
+  role text not null default 'candidate' check (role in ('candidate', 'admin')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -106,7 +107,17 @@ create table if not exists question_evaluations (
   unique (evaluation_id, question_number)
 );
 
+create table if not exists login_events (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  ip_address inet,
+  user_agent text
+);
+
 create index if not exists idx_interviews_candidate_created on interviews(candidate_id, created_at desc);
 create index if not exists idx_turns_interview_sequence on interview_turns(interview_id, sequence_no);
 create index if not exists idx_question_evaluations_evaluation on question_evaluations(evaluation_id, question_number);
 create index if not exists idx_interviews_recording_egress on interviews(recording_egress_id) where recording_egress_id is not null;
+create index if not exists idx_login_events_user_created on login_events(user_id, created_at desc);
+create index if not exists idx_login_events_created on login_events(created_at desc);
