@@ -3,6 +3,9 @@ name: Realtime Agent CI
 on:
   push:
     branches: [main]
+    paths:
+      - 'services/realtime-agent/**'
+      - '.github/workflows/realtime-agent-ci.yml'
   pull_request:
     paths:
       - 'services/realtime-agent/**'
@@ -12,8 +15,13 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: realtime-agent-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
+    name: Validate realtime agent
     runs-on: ubuntu-latest
     defaults:
       run:
