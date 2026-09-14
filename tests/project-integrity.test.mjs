@@ -41,6 +41,8 @@ test("realistic video interview room is wired", async () => {
   const agent = await readFile("services/realtime-agent/agent.py", "utf8");
   const env = await readFile(".env.example", "utf8");
   const requirements = await readFile("services/realtime-agent/requirements.txt", "utf8");
+  const token = await readFile("apps/web/lib/livekit-token.ts", "utf8");
+  const tokenRoute = await readFile("apps/web/app/api/livekit/token/route.ts", "utf8");
   assert.match(room, /PanelVideo/);
   assert.match(room, /candidate-video/);
   assert.match(room, /Live Transcript/);
@@ -52,9 +54,17 @@ test("realistic video interview room is wired", async () => {
   assert.match(panelVideo, /AI interviewer/);
   assert.match(agent, /video_input=True/);
   assert.match(agent, /anam.AvatarSession/);
-  assert.match(agent, /audio_output=not avatar_enabled/);
+  assert.match(agent, /interview-agent-1/);
+  assert.match(agent, /interview-agent-2/);
+  assert.match(agent, /interview-agent-3/);
+  assert.match(agent, /StopResponse/);
+  assert.match(agent, /panel_index/);
+  assert.match(token, /interview-agent-\$\{index \+ 1\}/);
+  assert.match(tokenRoute, /panel_size/);
   assert.match(env, /INTERVIEW_AVATAR_PROVIDER=none/);
-  assert.match(env, /ANAM_API_KEY=/);
+  assert.match(env, /ANAM_AVATAR_ID_1=/);
+  assert.match(env, /ANAM_AVATAR_ID_2=/);
+  assert.match(env, /ANAM_AVATAR_ID_3=/);
   assert.match(requirements, /livekit-plugins-anam/);
 });
 
