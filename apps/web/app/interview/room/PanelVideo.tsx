@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import type { CSSProperties } from "react";
 
 type Props = {
   track: MediaStreamTrack | null;
@@ -19,11 +20,11 @@ export default function PanelVideo({ track, name, role, active, accent, compact 
     const mediaStream = new MediaStream([track]);
     videoRef.current.srcObject = mediaStream;
     void videoRef.current.play().catch(() => undefined);
-    return () => { videoRef.current?.pause(); videoRef.current && (videoRef.current.srcObject = null); };
+    return () => { videoRef.current?.pause(); if (videoRef.current) videoRef.current.srcObject = null; };
   }, [track]);
 
   return (
-    <article className={`panel-video ${active ? "is-active" : ""} ${compact ? "is-compact" : ""}`} style={{ "--panel-accent": accent } as React.CSSProperties}>
+    <article className={`panel-video ${active ? "is-active" : ""} ${compact ? "is-compact" : ""}`} style={{ "--panel-accent": accent } as CSSProperties}>
       {track ? (
         <video ref={videoRef} className="panel-video-media" playsInline muted aria-label={`${name}, ${role}`} />
       ) : (
