@@ -13,6 +13,8 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.873.0",
     "@interview-platform/database": "workspace:*",
+    "@livekit/protocol": "^1.40.0",
+    "livekit-server-sdk": "^2.19.0",
     "next": "^16.3.3",
     "pdf-parse": "^2.4.5",
     "react": "^19.2.0",
