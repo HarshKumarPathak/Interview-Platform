@@ -3,16 +3,27 @@
 import { useEffect, useRef } from "react";
 import type { CSSProperties } from "react";
 
+type PanelState = "initializing" | "idle" | "listening" | "thinking" | "speaking";
+
 type Props = {
   track: MediaStreamTrack | null;
   name: string;
   role: string;
   active: boolean;
   accent: string;
+  state?: PanelState;
   compact?: boolean;
 };
 
-export default function PanelVideo({ track, name, role, active, accent, compact = false }: Props) {
+const STATE_LABELS: Record<PanelState, string> = {
+  initializing: "Joining",
+  idle: "Ready",
+  listening: "Listening",
+  thinking: "Thinking",
+  speaking: "Speaking",
+};
+
+export default function PanelVideo({ track, name, role, active, accent, state = "listening", compact = false }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -23,8 +34,10 @@ export default function PanelVideo({ track, name, role, active, accent, compact 
     return () => { videoRef.current?.pause(); if (videoRef.current) videoRef.current.srcObject = null; };
   }, [track]);
 
+  const effectiveState = active && state !== "speaking" ? "speaking" : state;
+
   return (
-    <article className={`panel-video ${active ? "is-active" : ""} ${compact ? "is-compact" : ""}`} style={{ "--panel-accent": accent } as CSSProperties}>
+    <article className={`panel-video ${active ? "is-active" : ""} ${effectiveState === "thinking" ? "is-thinking" : ""} ${compact ? "is-compact" : ""}`} style={{ "--panel-accent": accent } as CSSProperties}>
       {track ? (
         <video ref={videoRef} className="panel-video-media" playsInline muted aria-label={`${name}, ${role}`} />
       ) : (
@@ -36,7 +49,7 @@ export default function PanelVideo({ track, name, role, active, accent, compact 
       <div className="panel-video-shade" />
       <div className="panel-video-meta">
         <div><strong>{name}</strong><span>{role}</span></div>
-        <span className={`panel-state ${active ? "speaking" : "listening"}`}><i />{active ? "Speaking" : "Listening"}</span>
+        <span className={`panel-state ${effectiveState}`}><i />{STATE_LABELS[effectiveState]}</span>
       </div>
       <span className="panel-ai-badge">AI interviewer</span>
     </article>
