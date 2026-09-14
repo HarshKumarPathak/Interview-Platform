@@ -34,10 +34,12 @@ type LiveKitClient = {
     ParticipantAttributesChanged: string;
     ParticipantConnected: string;
     ParticipantDisconnected: string;
+    ConnectionQualityChanged: string;
   };
   Track: { Kind: { Audio: string; Video: string } };
 };
 type InterviewerState = "initializing" | "idle" | "listening" | "thinking" | "speaking";
+type ConnectionQuality = "excellent" | "good" | "poor";
 declare global { interface Window { LivekitClient?: LiveKitClient } }
 
 function loadLiveKitClient() {
@@ -76,11 +78,19 @@ type Props = {
   onRemoteVideoTrackRemoved?: (participantIdentity: string) => void;
   onActiveSpeaker?: (participantIdentity: string | null) => void;
   onInterviewerState?: (participantIdentity: string, state: InterviewerState) => void;
+  onConnectionQuality?: (quality: ConnectionQuality) => void;
 };
 
 const VALID_STATES = new Set<InterviewerState>(["initializing", "idle", "listening", "thinking", "speaking"]);
 
-export default function RealtimeTransport({ interviewId, stream, muted, screenShareEnabled = false, onStatus, onScreenShareStatus, onRemoteVideoTrack, onRemoteVideoTrackRemoved, onActiveSpeaker, onInterviewerState }: Props) {
+function panelIdentity(participant: LiveKitRemoteParticipant | undefined) {
+  const identity = participant?.identity ?? "interviewer";
+  const panelIndex = participant?.attributes?.["interview.panel_index"];
+  if (panelIndex !== undefined && ["0", "1", "2"].includes(panelIndex)) return `interviewer-avatar-${Number(panelIndex) + 1}`;
+  return identity;
+}
+
+export default function RealtimeTransport({ interviewId, stream, muted, screenShareEnabled = false, onStatus, onScreenShareStatus, onRemoteVideoTrack, onRemoteVideoTrackRemoved, onActiveSpeaker, onInterviewerState, onConnectionQuality }: Props) {
   const [status, setStatus] = useState("Realtime voice: waiting…");
   const mutedRef = useRef(muted);
   const screenShareRef = useRef(screenShareEnabled);
@@ -90,6 +100,7 @@ export default function RealtimeTransport({ interviewId, stream, muted, screenSh
   const onRemoteVideoTrackRemovedRef = useRef(onRemoteVideoTrackRemoved);
   const onActiveSpeakerRef = useRef(onActiveSpeaker);
   const onInterviewerStateRef = useRef(onInterviewerState);
+  const onConnectionQualityRef = useRef(onConnectionQuality);
   const roomRef = useRef<LiveKitRoom | null>(null);
   const recordingStartedRef = useRef(false);
 
@@ -101,6 +112,7 @@ export default function RealtimeTransport({ interviewId, stream, muted, screenSh
   useEffect(() => { onRemoteVideoTrackRemovedRef.current = onRemoteVideoTrackRemoved; }, [onRemoteVideoTrackRemoved]);
   useEffect(() => { onActiveSpeakerRef.current = onActiveSpeaker; }, [onActiveSpeaker]);
   useEffect(() => { onInterviewerStateRef.current = onInterviewerState; }, [onInterviewerState]);
+  useEffect(() => { onConnectionQualityRef.current = onConnectionQuality; }, [onConnectionQuality]);
 
   useEffect(() => {
     if (!interviewId || !stream) return;
@@ -119,7 +131,7 @@ export default function RealtimeTransport({ interviewId, stream, muted, screenSh
     };
 
     const reportParticipantState = (participant: LiveKitRemoteParticipant | undefined) => {
-      const identity = participant?.identity;
+      const identity = panelIdentity(participant);
       if (!identity) return;
       const raw = participant?.attributes?.["lk.agent.state"];
       const state = raw && VALID_STATES.has(raw as InterviewerState) ? raw as InterviewerState : "idle";
@@ -143,7 +155,7 @@ export default function RealtimeTransport({ interviewId, stream, muted, screenSh
         const onTrackSubscribed = (...args: unknown[]) => {
           const track = args[0] as LiveKitTrack | undefined;
           const participant = args[2] as LiveKitRemoteParticipant | undefined;
-          const identity = participant?.identity ?? "interviewer";
+          const identity = panelIdentity(participant);
           if (!track) return;
           reportParticipantState(participant);
           if (track.kind === client?.Track.Kind.Audio && (track as LiveKitTrack & { attach?: () => HTMLMediaElement }).attach) {
@@ -160,7 +172,7 @@ export default function RealtimeTransport({ interviewId, stream, muted, screenSh
         };
         const onTrackUnsubscribed = (...args: unknown[]) => {
           const participant = args[2] as LiveKitRemoteParticipant | undefined;
-          const identity = participant?.identity ?? "interviewer";
+          const identity = panelIdentity(participant);
           remoteVideoParticipants.delete(identity);
           onRemoteVideoTrackRemovedRef.current?.(identity);
           const track = args[0] as LiveKitTrack | undefined;
@@ -168,16 +180,14 @@ export default function RealtimeTransport({ interviewId, stream, muted, screenSh
         };
         const onActiveSpeakersChanged = (...args: unknown[]) => {
           const speakers = Array.isArray(args[0]) ? args[0] as Array<LiveKitRemoteParticipant & { identity?: string }> : [];
-          const interviewer = speakers.find((speaker) => speaker.identity && (remoteVideoParticipants.has(speaker.identity) || speaker.attributes?.["lk.agent.state"]));
-          onActiveSpeakerRef.current?.(interviewer?.identity ?? null);
+          const interviewer = speakers.find((speaker) => speaker.identity && (remoteVideoParticipants.has(panelIdentity(speaker)) || speaker.attributes?.["lk.agent.state"]));
+          onActiveSpeakerRef.current?.(interviewer ? panelIdentity(interviewer) : null);
         };
         const onParticipantAttributesChanged = (...args: unknown[]) => {
-          // LiveKit JS emits (changedAttributes, participant).
           const changed = args[0] as Record<string, string> | undefined;
           const participant = args[1] as LiveKitRemoteParticipant | undefined;
-          if (changed?.["lk.agent.state"] && participant?.identity) {
-            const raw = changed["lk.agent.state"];
-            if (VALID_STATES.has(raw as InterviewerState)) onInterviewerStateRef.current?.(participant.identity, raw as InterviewerState);
+          if ((changed?.["lk.agent.state"] || changed?.["interview.panel_index"]) && participant?.identity) {
+            reportParticipantState(participant);
           } else {
             reportParticipantState(participant);
           }
@@ -186,10 +196,16 @@ export default function RealtimeTransport({ interviewId, stream, muted, screenSh
         const onParticipantDisconnected = (...args: unknown[]) => {
           const participant = args[0] as LiveKitRemoteParticipant | undefined;
           if (participant?.identity) {
-            remoteVideoParticipants.delete(participant.identity);
-            onRemoteVideoTrackRemovedRef.current?.(participant.identity);
-            onInterviewerStateRef.current?.(participant.identity, "idle");
+            const identity = panelIdentity(participant);
+            remoteVideoParticipants.delete(identity);
+            onRemoteVideoTrackRemovedRef.current?.(identity);
+            onInterviewerStateRef.current?.(identity, "idle");
           }
+        };
+        const onConnectionQualityChanged = (...args: unknown[]) => {
+          const quality = String(args[1] ?? args[0] ?? "good").toLowerCase();
+          const normalized: ConnectionQuality = quality.includes("poor") || quality.includes("lost") ? "poor" : quality.includes("excellent") ? "excellent" : "good";
+          onConnectionQualityRef.current?.(normalized);
         };
 
         room.on(client.RoomEvent.TrackSubscribed, onTrackSubscribed);
@@ -198,6 +214,7 @@ export default function RealtimeTransport({ interviewId, stream, muted, screenSh
         room.on(client.RoomEvent.ParticipantAttributesChanged, onParticipantAttributesChanged);
         room.on(client.RoomEvent.ParticipantConnected, onParticipantConnected);
         room.on(client.RoomEvent.ParticipantDisconnected, onParticipantDisconnected);
+        room.on(client.RoomEvent.ConnectionQualityChanged, onConnectionQualityChanged);
         await room.connect(serverUrl, token);
 
         for (const participant of room.remoteParticipants?.values() ?? []) reportParticipantState(participant);
@@ -219,7 +236,7 @@ export default function RealtimeTransport({ interviewId, stream, muted, screenSh
         console.warn("LiveKit realtime transport unavailable", error);
         room?.disconnect();
         roomRef.current = null;
-        if (active) { onScreenShareStatusRef.current?.(false); setTransportStatus("unavailable"); }
+        if (active) { onScreenShareStatusRef.current?.(false); onConnectionQualityRef.current?.("poor"); setTransportStatus("unavailable"); }
       }
     }
 
