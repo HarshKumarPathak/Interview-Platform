@@ -6,6 +6,7 @@ const files = [
   "apps/web/app/api/resumes/route.ts",
   "apps/web/app/api/livekit/webhook/route.ts",
   "apps/web/app/api/livekit/egress/route.ts",
+  "apps/web/app/api/livekit/health/route.ts",
   "apps/web/app/api/evaluations/route.ts",
   "apps/web/app/api/auth/login/route.ts",
   "apps/web/app/admin/page.tsx",
@@ -32,6 +33,17 @@ test("authentication activity is wired to login", async () => {
   assert.match(loginRoute, /insert into login_events/i);
   assert.match(migration, /create table if not exists login_events/i);
   assert.match(adminPage, /Recent successful logins/);
+});
+
+test("realtime health endpoint reports safe configuration state", async () => {
+  const healthRoute = await readFile("apps/web/app/api/livekit/health/route.ts", "utf8");
+  assert.match(healthRoute, /LIVEKIT_URL/);
+  assert.match(healthRoute, /LIVEKIT_AGENT_SHARED_SECRET/);
+  assert.match(healthRoute, /OPENAI_API_KEY/);
+  assert.match(healthRoute, /INTERVIEW_AVATAR_PROVIDER/);
+  assert.match(healthRoute, /ANAM_AVATAR_ID_1/);
+  assert.match(healthRoute, /NextResponse\.json/);
+  assert.doesNotMatch(healthRoute, /process\.env\.[A-Z_]+\s*[=:]\s*["'][^"']+["']/);
 });
 
 test("realistic video interview room is wired", async () => {
@@ -64,7 +76,7 @@ test("realistic video interview room is wired", async () => {
   assert.match(agent, /live camera video/);
   assert.match(agent, /video_adaptive_followup/);
   assert.match(agent, /publish_panel_identity/);
-  assert.match(agent, /anam.AvatarSession/);
+  assert.match(agent, /anam\.AvatarSession/);
   assert.match(agent, /interview-agent-1/);
   assert.match(agent, /interview-agent-2/);
   assert.match(agent, /interview-agent-3/);
