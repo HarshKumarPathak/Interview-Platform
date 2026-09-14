@@ -2,26 +2,18 @@ name: Realtime Agent CI
 
 on:
   push:
-    branches: [main]
-    paths:
-      - 'services/realtime-agent/**'
-      - '.github/workflows/realtime-agent-ci.yml'
+    branches:
+      - main
   pull_request:
-    paths:
-      - 'services/realtime-agent/**'
-      - '.github/workflows/realtime-agent-ci.yml'
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: realtime-agent-ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   validate:
-    name: Validate realtime agent
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -33,9 +25,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-          cache: pip
-          cache-dependency-path: services/realtime-agent/requirements.txt
+          python-version: "3.12"
 
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
