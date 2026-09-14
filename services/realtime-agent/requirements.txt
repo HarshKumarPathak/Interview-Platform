@@ -1,4 +1,4 @@
-livekit-agents~=1.6.1
-livekit-plugins-openai~=1.6.1
-livekit-plugins-anam~=1.6.1
+livekit-agents~=1.6.4
+livekit-plugins-openai~=1.6.4
+livekit-plugins-anam~=1.6.4
 python-dotenv>=1.0,<2.0
