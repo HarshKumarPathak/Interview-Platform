@@ -26,6 +26,30 @@ def interview_id_from_room(room_name: str) -> str | None:
     return room_name[len(prefix):] if room_name.startswith(prefix) else None
 
 
+def dispatch_metadata(ctx: JobContext) -> dict:
+    raw = getattr(ctx.job, "metadata", "") or ""
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+        return value if isinstance(value, dict) else {}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+
+
+async def publish_panel_identity(ctx: JobContext, panel_index: int, role_name: str, avatar_enabled: bool) -> None:
+    attributes = {
+        "interview.panel_index": str(panel_index),
+        "interview.panel_role": role_name,
+        "interview.avatar_enabled": "true" if avatar_enabled else "false",
+    }
+    try:
+        await ctx.room.local_participant.set_attributes(attributes)
+        await ctx.room.local_participant.set_name(role_name)
+    except Exception as error:
+        print(f"panel participant metadata unavailable: {error}")
+
+
 async def fetch_context(interview_id: str) -> dict:
     base_url = os.getenv("WEB_APP_URL", "http://localhost:3000").rstrip("/")
     secret = os.getenv("LIVEKIT_AGENT_SHARED_SECRET", "")
@@ -79,6 +103,7 @@ def build_instructions(context: dict, panel_index: int) -> str:
     return (
         f"You are {role_name}, one member of a live human-style interview panel. "
         "This is a video interview, not a chatbot. Behave like a real professional interviewer on Zoom/Meet: listen fully, use brief natural acknowledgements, leave short pauses, and ask one clear question at a time. "
+        "You have access to the candidate's live camera video. Use visible, task-relevant signals such as whether they appear attentive, whether their response delivery is hesitant or confident, and whether their presentation is clear to adapt your next question. Never infer protected traits, health, emotion as fact, attractiveness, or personality from appearance, and never penalize a candidate for appearance. "
         "If the candidate interrupts you, stop speaking and listen. When an answer is vague, ask a concrete follow-up based on the answer. Never stack questions, narrate reasoning, or invent candidate facts. "
         f"Your panel responsibility: {role_policy} "
         "Only speak when the panel coordinator selects you for the next turn; otherwise remain silent. "
@@ -167,6 +192,7 @@ class PanelInterviewer(Agent):
         role_name = PANEL_ROLES.get(self.panel_index, PANEL_ROLES[0])[0]
         await self.update_instructions(
             f"You are now the selected speaker, {role_name}. Continue naturally after the candidate's answer. "
+            "Use the candidate's live video only as a contextual delivery signal, never as a judgment of appearance. "
             "Ask exactly the adaptive engine's selected question and nothing else: "
             f"{next_question['question']}"
         )
@@ -174,8 +200,15 @@ class PanelInterviewer(Agent):
 
 async def run_panel_agent(ctx: JobContext, panel_index: int) -> None:
     interview_id = interview_id_from_room(ctx.room.name)
+    metadata = dispatch_metadata(ctx)
+    if metadata.get("interviewId"):
+        interview_id = str(metadata["interviewId"])
     if not interview_id:
         raise RuntimeError("LiveKit room name must be interview-{interviewId}")
+
+    metadata_panel_index = metadata.get("panelIndex")
+    if isinstance(metadata_panel_index, int):
+        panel_index = metadata_panel_index
     try:
         context = await fetch_context(interview_id)
     except Exception as error:
@@ -195,6 +228,7 @@ async def run_panel_agent(ctx: JobContext, panel_index: int) -> None:
     avatar = None
 
     session = AgentSession(turn_handling=TurnHandlingOptions(turn_detection="vad", preemptive_generation={"preemptive_tts": False}))
+    await publish_panel_identity(ctx, panel_index, PANEL_ROLES.get(panel_index, PANEL_ROLES[0])[0], avatar_enabled)
     if avatar_enabled:
         avatar = anam.AvatarSession(
             persona_config=anam.PersonaConfig(name=os.getenv(f"ANAM_AVATAR_NAME_{panel_index + 1}", "") or (os.getenv("ANAM_AVATAR_NAME", "Interview Panel Lead") if panel_index == 0 else PANEL_ROLES.get(panel_index, PANEL_ROLES[0])[0]), avatarId=avatar_id),
@@ -217,7 +251,7 @@ async def run_panel_agent(ctx: JobContext, panel_index: int) -> None:
         speaker = "candidate" if item.role == "user" else "interviewer"
         if speaker == "candidate" and panel_index != 0:
             return
-        metadata = {"source": "livekit-agent", "realtime": True, "role": item.role, "panel_index": panel_index, "panel_size": panel_size, "avatar_enabled": avatar_enabled, "video_input_enabled": True}
+        metadata = {"source": "livekit-agent", "realtime": True, "role": item.role, "panel_index": panel_index, "panel_size": panel_size, "avatar_enabled": avatar_enabled, "video_input_enabled": True, "video_adaptive_followup": True}
         if speaker == "interviewer":
             metadata["interviewer_name"] = PANEL_ROLES.get(panel_index, PANEL_ROLES[0])[0]
             if agent.pending_question:
@@ -232,7 +266,7 @@ async def run_panel_agent(ctx: JobContext, panel_index: int) -> None:
         if first_question and first_question.get("question"):
             agent.pending_question = first_question
             agent.previous_question = str(first_question["question"])
-            await agent.update_instructions("Start the interview naturally. Greet the candidate briefly, then ask exactly this selected first question: " + str(first_question["question"]))
+            await agent.update_instructions("Start the interview naturally. Greet the candidate briefly, observe their live presentation only as a delivery/context signal, then ask exactly this selected first question: " + str(first_question["question"]))
             await session.generate_reply(instructions=f"Ask the selected first question exactly: {first_question['question']}")
         else:
             await session.generate_reply(instructions="Start the interview naturally. Greet the candidate briefly, then ask one concise opening question.")
