@@ -76,7 +76,7 @@ async function liveKitRequest(path: string, body: Record<string, unknown>, roomN
   const apiKey = process.env.LIVEKIT_API_KEY;
   const apiSecret = process.env.LIVEKIT_API_SECRET;
   if (!baseUrl || !apiKey || !apiSecret) throw new Error("LiveKit is not configured");
-  const token = createLiveKitRoomRecordToken({ apiKey, apiSecret, room: roomName });
+  const token = await createLiveKitRoomRecordToken({ apiKey, apiSecret, room: roomName });
   const response = await fetch(`${baseUrl}/twirp/livekit.Egress/${path}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
