@@ -15,6 +15,7 @@ Candidate camera + microphone
        │ interviewer 2 │── realtime voice/vision agent
        │ interviewer 3 │── realtime voice/vision agent
        │ avatar tracks │── optional photorealistic video
+       │ screen share  │── optional candidate screen input
        └───────────────┘
           │
           ▼
@@ -27,14 +28,16 @@ Candidate camera + microphone
 ## Experience
 
 - Candidate camera and microphone are the primary live participant media.
-- The room supports 1–3 interviewer panel slots with speaking/listening states.
+- The room supports 1–3 interviewer panel slots with live initializing/listening/thinking/speaking states.
 - Each seat maps to a dedicated LiveKit agent dispatch name: `interview-agent-1`, `interview-agent-2`, `interview-agent-3`.
 - The selected panel member speaks for a turn while the other panel agents remain silent.
-- Candidate interruptions are handled by LiveKit turn handling rather than waiting for a chat submit action.
+- Candidate interruptions are handled by OpenAI Realtime semantic VAD with interruption enabled, rather than waiting for a chat submit action.
 - The realtime agent can receive candidate video frames through LiveKit/OpenAI Realtime video input when enabled.
+- Candidate screen sharing uses LiveKit's real screen-share track publishing, so the agent receives it through the same room instead of opening a temporary browser capture window.
 - Adaptive follow-up questions are generated from the candidate answer and current interview stage.
 - Every completed turn is persisted with interviewer role, panel index, question stage, question source and avatar status.
 - The right-side transcript/context rail makes the session feel like a professional video call while retaining interview-specific context.
+- Interviewer state is read from LiveKit's synchronized `lk.agent.state` participant attribute, so the UI can distinguish listening, thinking and speaking instead of using a fixed animation.
 
 ## Photorealistic interviewer video
 
@@ -60,7 +63,7 @@ Anam publishes the avatar as a normal LiveKit video participant, so the existing
 
 ## Local development
 
-The full video-call UI works without an avatar provider. In that mode the room keeps the candidate camera/microphone, transcript, panel states and fallback voice/text flow, while interviewer seats wait for real remote video tracks instead of faking a live video stream.
+The full video-call UI works without an avatar provider. In that mode the room keeps the candidate camera/microphone, transcript, real screen sharing, synchronized interviewer states and fallback voice/text flow, while interviewer seats wait for real remote video tracks instead of faking a live video stream.
 
 For actual realtime video + voice:
 
@@ -78,7 +81,7 @@ The UI intentionally mirrors a video meeting:
 - mute/video/screen-share controls,
 - live transcript sidebar,
 - interview details and current focus,
-- active-speaker state,
+- active-speaker and agent-state indicators,
 - realtime connection status,
 - end/leave interview action.
 
