@@ -8,12 +8,10 @@ type LiveKitParticipant = {
   publishTrack: (track: MediaStreamTrack, options?: Record<string, unknown>) => Promise<LiveKitPublication>;
   setMicrophoneEnabled: (enabled: boolean) => Promise<LiveKitPublication | undefined>;
   setScreenShareEnabled: (enabled: boolean) => Promise<LiveKitPublication | undefined>;
-  attributes?: Record<string, string>;
 };
 type LiveKitTrack = {
   kind?: string;
   mediaStreamTrack?: MediaStreamTrack;
-  attach?: () => HTMLMediaElement;
   detach?: () => void;
 };
 type LiveKitRemoteParticipant = {
@@ -148,8 +146,8 @@ export default function RealtimeTransport({ interviewId, stream, muted, screenSh
           const identity = participant?.identity ?? "interviewer";
           if (!track) return;
           reportParticipantState(participant);
-          if (track.kind === client?.Track.Kind.Audio && track.attach) {
-            const element = track.attach();
+          if (track.kind === client?.Track.Kind.Audio && (track as LiveKitTrack & { attach?: () => HTMLMediaElement }).attach) {
+            const element = (track as LiveKitTrack & { attach: () => HTMLMediaElement }).attach();
             element.autoplay = true;
             element.setAttribute("aria-label", "AI interviewer audio");
             document.body.appendChild(element);
@@ -174,13 +172,24 @@ export default function RealtimeTransport({ interviewId, stream, muted, screenSh
           onActiveSpeakerRef.current?.(interviewer?.identity ?? null);
         };
         const onParticipantAttributesChanged = (...args: unknown[]) => {
+          // LiveKit JS emits (changedAttributes, participant).
+          const changed = args[0] as Record<string, string> | undefined;
           const participant = args[1] as LiveKitRemoteParticipant | undefined;
-          reportParticipantState(participant);
+          if (changed?.["lk.agent.state"] && participant?.identity) {
+            const raw = changed["lk.agent.state"];
+            if (VALID_STATES.has(raw as InterviewerState)) onInterviewerStateRef.current?.(participant.identity, raw as InterviewerState);
+          } else {
+            reportParticipantState(participant);
+          }
         };
         const onParticipantConnected = (...args: unknown[]) => reportParticipantState(args[0] as LiveKitRemoteParticipant | undefined);
         const onParticipantDisconnected = (...args: unknown[]) => {
           const participant = args[0] as LiveKitRemoteParticipant | undefined;
-          if (participant?.identity) onInterviewerStateRef.current?.(participant.identity, "idle");
+          if (participant?.identity) {
+            remoteVideoParticipants.delete(participant.identity);
+            onRemoteVideoTrackRemovedRef.current?.(participant.identity);
+            onInterviewerStateRef.current?.(participant.identity, "idle");
+          }
         };
 
         room.on(client.RoomEvent.TrackSubscribed, onTrackSubscribed);
