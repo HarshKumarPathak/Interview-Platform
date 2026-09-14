@@ -31,19 +31,34 @@ export default function PanelVideo({ track, name, role, active, accent, state = 
     const mediaStream = new MediaStream([track]);
     videoRef.current.srcObject = mediaStream;
     void videoRef.current.play().catch(() => undefined);
-    return () => { videoRef.current?.pause(); if (videoRef.current) videoRef.current.srcObject = null; };
+    return () => {
+      videoRef.current?.pause();
+      if (videoRef.current) videoRef.current.srcObject = null;
+    };
   }, [track]);
 
   const effectiveState = active && state !== "speaking" ? "speaking" : state;
+  const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "AI";
 
   return (
-    <article className={`panel-video ${active ? "is-active" : ""} ${effectiveState === "thinking" ? "is-thinking" : ""} ${compact ? "is-compact" : ""}`} style={{ "--panel-accent": accent } as CSSProperties}>
+    <article
+      className={`panel-video ${active ? "is-active" : ""} ${effectiveState === "thinking" ? "is-thinking" : ""} ${compact ? "is-compact" : ""}`}
+      style={{ "--panel-accent": accent } as CSSProperties}
+    >
       {track ? (
         <video ref={videoRef} className="panel-video-media" playsInline muted aria-label={`${name}, ${role}`} />
       ) : (
-        <div className="panel-video-fallback" aria-label={`${name}, ${role}`}>
-          <div className="panel-avatar-head"><span className="panel-avatar-hair" /><span className="panel-avatar-eye left" /><span className="panel-avatar-eye right" /><span className="panel-avatar-mouth" /></div>
-          <div className="panel-fallback-glow" />
+        <div className="panel-video-fallback" aria-label={`${name}, ${role} — live interviewer video waiting`}>
+          <div className="panel-fallback-stage">
+            <div className="panel-fallback-avatar" aria-hidden="true">
+              <span>{initials}</span>
+            </div>
+            <div className="panel-fallback-copy">
+              <strong>Interviewer video</strong>
+              <span>Live human-style avatar will appear here</span>
+            </div>
+          </div>
+          <div className="panel-fallback-scan" aria-hidden="true" />
         </div>
       )}
       <div className="panel-video-shade" />
