@@ -9,10 +9,16 @@ const files = [
   "apps/web/app/api/evaluations/route.ts",
   "apps/web/app/api/auth/login/route.ts",
   "apps/web/app/admin/page.tsx",
+  "apps/web/app/interview/room/page.tsx",
+  "apps/web/app/interview/room/RealtimeTransport.tsx",
+  "apps/web/app/interview/room/PanelVideo.tsx",
+  "services/realtime-agent/agent.py",
+  "services/realtime-agent/requirements.txt",
   "services/evaluation-worker/src/index.ts",
   "packages/database/migrations/001_interview_recordings.sql",
   "packages/database/migrations/002_evaluation_jobs.sql",
   "packages/database/migrations/003_auth_activity.sql",
+  "docs/INTERVIEW_ROOM_V2.md",
 ];
 
 test("production workflow files exist", async () => {
@@ -26,6 +32,30 @@ test("authentication activity is wired to login", async () => {
   assert.match(loginRoute, /insert into login_events/i);
   assert.match(migration, /create table if not exists login_events/i);
   assert.match(adminPage, /Recent successful logins/);
+});
+
+test("realistic video interview room is wired", async () => {
+  const room = await readFile("apps/web/app/interview/room/page.tsx", "utf8");
+  const transport = await readFile("apps/web/app/interview/room/RealtimeTransport.tsx", "utf8");
+  const panelVideo = await readFile("apps/web/app/interview/room/PanelVideo.tsx", "utf8");
+  const agent = await readFile("services/realtime-agent/agent.py", "utf8");
+  const env = await readFile(".env.example", "utf8");
+  const requirements = await readFile("services/realtime-agent/requirements.txt", "utf8");
+  assert.match(room, /PanelVideo/);
+  assert.match(room, /candidate-video/);
+  assert.match(room, /Live Transcript/);
+  assert.match(room, /Current Focus/);
+  assert.match(room, /Share Screen/);
+  assert.match(transport, /TrackSubscribed/);
+  assert.match(transport, /ActiveSpeakersChanged/);
+  assert.match(transport, /onRemoteVideoTrack/);
+  assert.match(panelVideo, /AI interviewer/);
+  assert.match(agent, /video_input=True/);
+  assert.match(agent, /anam.AvatarSession/);
+  assert.match(agent, /audio_output=not avatar_enabled/);
+  assert.match(env, /INTERVIEW_AVATAR_PROVIDER=none/);
+  assert.match(env, /ANAM_API_KEY=/);
+  assert.match(requirements, /livekit-plugins-anam/);
 });
 
 test("README reflects completed core scope", async () => {
