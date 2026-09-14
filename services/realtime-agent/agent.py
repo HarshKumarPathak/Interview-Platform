@@ -9,6 +9,7 @@ from livekit import room_io
 from livekit.agents import Agent, AgentServer, AgentSession, JobContext, TurnHandlingOptions, cli
 from livekit.agents.llm import ChatMessage, StopResponse
 from livekit.plugins import anam, openai
+from openai.types.beta.realtime.session import TurnDetection
 
 load_dotenv()
 server = AgentServer()
@@ -140,12 +141,12 @@ class PanelInterviewer(Agent):
             instructions=instructions,
             llm=openai.realtime.RealtimeModel(
                 model=os.getenv("OPENAI_REALTIME_MODEL", "gpt-realtime"),
-                turn_detection={
-                    "type": "semantic_vad",
-                    "eagerness": "medium",
-                    "create_response": True,
-                    "interrupt_response": True,
-                },
+                turn_detection=TurnDetection(
+                    type="semantic_vad",
+                    eagerness="medium",
+                    create_response=True,
+                    interrupt_response=True,
+                ),
             ),
         )
 
