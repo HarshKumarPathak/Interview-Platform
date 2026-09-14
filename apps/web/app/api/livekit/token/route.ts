@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     if (!apiKey || !apiSecret || !serverUrl) return NextResponse.json({ error: "Realtime voice is not configured" }, { status: 503 });
 
     const room = `interview-${interviewId}`;
-    const token = createLiveKitToken({ apiKey, apiSecret, identity: `candidate-${candidateRow.id}`, name: candidateRow.display_name, room, interviewId, panelSize: interview.rows[0].panel_size });
+    const token = await createLiveKitToken({ apiKey, apiSecret, identity: `candidate-${candidateRow.id}`, name: candidateRow.display_name, room, interviewId, panelSize: interview.rows[0].panel_size });
     return NextResponse.json({ token, serverUrl, room, panelSize: interview.rows[0].panel_size });
   } catch (error) {
     console.error("LiveKit token creation failed", error);
