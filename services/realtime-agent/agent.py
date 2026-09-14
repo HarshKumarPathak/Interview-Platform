@@ -136,7 +136,18 @@ class PanelInterviewer(Agent):
         self.question_index = len([turn for turn in context.get("recent_turns", []) if turn.get("speaker") == "candidate"])
         self.previous_question: str | None = next((turn.get("content") for turn in reversed(context.get("recent_turns") or []) if turn.get("speaker") == "interviewer" and turn.get("content")), None)
         self.pending_question: dict | None = None
-        super().__init__(instructions=instructions, llm=openai.realtime.RealtimeModel(model=os.getenv("OPENAI_REALTIME_MODEL", "gpt-realtime"), turn_detection=None))
+        super().__init__(
+            instructions=instructions,
+            llm=openai.realtime.RealtimeModel(
+                model=os.getenv("OPENAI_REALTIME_MODEL", "gpt-realtime"),
+                turn_detection={
+                    "type": "semantic_vad",
+                    "eagerness": "medium",
+                    "create_response": True,
+                    "interrupt_response": True,
+                },
+            ),
+        )
 
     async def on_user_turn_completed(self, turn_ctx, new_message: ChatMessage) -> None:
         answer = new_message.text_content.strip()
@@ -213,7 +224,7 @@ async def run_panel_agent(ctx: JobContext, panel_index: int) -> None:
                 agent.pending_question = None
         asyncio.create_task(persist_turn(interview_id, speaker, text, metadata))
 
-    await session.start(agent=agent, room=ctx.room, room_options=room_io.RoomOptions(video_input=True, audio_output=avatar_enabled or panel_index == 0))
+    await session.start(agent=agent, room=ctx.room, room_options=room_io.RoomOptions(video_input=True, audio_output=True))
 
     if panel_index == 0 and not context.get("recent_turns"):
         first_question = await generate_next_question(context, 0, None, None)
