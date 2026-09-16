@@ -41,7 +41,7 @@ test("realtime health endpoint reports safe configuration state", async () => {
   assert.match(healthRoute, /LIVEKIT_AGENT_SHARED_SECRET/);
   assert.match(healthRoute, /OPENAI_API_KEY/);
   assert.match(healthRoute, /INTERVIEW_AVATAR_PROVIDER/);
-  assert.match(healthRoute, /ANAM_AVATAR_ID_1/);
+  assert.match(healthRoute, /ANAM_AVATAR_ID_\$\{index\}/);
   assert.match(healthRoute, /AI_ENGINE_URL/);
   assert.match(healthRoute, /WEB_APP_URL/);
   assert.match(healthRoute, /Cache-Control/);
