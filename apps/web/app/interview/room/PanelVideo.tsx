@@ -48,14 +48,14 @@ export default function PanelVideo({ track, name, role, active, accent, state = 
       {track ? (
         <video ref={videoRef} className="panel-video-media" playsInline muted aria-label={`${name}, ${role}`} />
       ) : (
-        <div className="panel-video-fallback" aria-label={`${name}, ${role} — live interviewer video waiting`}>
+        <div className="panel-video-fallback" aria-label={`${name}, ${role} — interviewer video unavailable`}>
           <div className="panel-fallback-stage">
             <div className="panel-fallback-avatar" aria-hidden="true">
               <span>{initials}</span>
             </div>
             <div className="panel-fallback-copy">
-              <strong>Interviewer video</strong>
-              <span>Live human-style avatar will appear here</span>
+              <strong>Interviewer video unavailable</strong>
+              <span>Realtime voice and panel state remain active</span>
             </div>
           </div>
           <div className="panel-fallback-scan" aria-hidden="true" />
