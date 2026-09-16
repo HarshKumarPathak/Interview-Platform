@@ -70,6 +70,8 @@ test("realistic video interview room is wired", async () => {
   assert.match(transport, /ActiveSpeakersChanged/);
   assert.match(transport, /ParticipantAttributesChanged/);
   assert.match(transport, /ConnectionQualityChanged/);
+  assert.match(transport, /String\(args\[0\]/);
+  assert.match(transport, /qualityLabel/);
   assert.match(transport, /lk\.agent\.state/);
   assert.match(transport, /interview\.panel_index/);
   assert.match(transport, /setScreenShareEnabled/);
