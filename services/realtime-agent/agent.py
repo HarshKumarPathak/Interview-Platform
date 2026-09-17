@@ -259,7 +259,7 @@ async def run_panel_agent(ctx: JobContext, panel_index: int) -> None:
                 agent.pending_question = None
         asyncio.create_task(persist_turn(interview_id, speaker, text, metadata))
 
-    await session.start(agent=agent, room=ctx.room, room_options=room_io.RoomOptions(video_input=True, audio_output=True))
+    await session.start(agent=agent, room=ctx.room, room_options=room_io.RoomOptions(video_input=True, audio_output=not avatar_enabled))
 
     if panel_index == 0 and not context.get("recent_turns"):
         first_question = await generate_next_question(context, 0, None, None)
