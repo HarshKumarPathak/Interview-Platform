@@ -19,6 +19,20 @@ permissions:
 jobs:
   web:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: interview_platform
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d interview_platform"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,11 +50,32 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
+      - name: Prepare local environment
+        run: pnpm env:setup
+
+      - name: Start database schema
+        run: pnpm db:migrate
+
       - name: Typecheck
         run: pnpm typecheck
 
       - name: Tests
         run: node --test tests/*.test.mjs && pnpm test
+
+      - name: Authentication E2E
+        shell: bash
+        run: |
+          pnpm --filter @interview-platform/web dev > web-e2e.log 2>&1 &
+          echo $! > web-e2e.pid
+          for i in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:3000/login > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:3000/login > /dev/null
+          AUTH_E2E_BASE_URL=http://127.0.0.1:3000 node --test tests/auth-e2e.test.mjs
+          kill $(cat web-e2e.pid)
 
       - name: Lint
         run: pnpm lint
