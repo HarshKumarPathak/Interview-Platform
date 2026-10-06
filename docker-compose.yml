@@ -9,6 +9,12 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d interview_platform"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
 
   redis:
     image: redis:8-alpine
@@ -16,6 +22,12 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 3s
 
 volumes:
   postgres_data:
