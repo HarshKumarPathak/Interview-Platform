@@ -4,6 +4,16 @@ import { NextResponse } from "next/server";
 import { query } from "@interview-platform/database";
 import { createSession, verifyPassword } from "../../../../lib/auth";
 
+function serverAuthError(error: unknown, fallback: string) {
+  console.error(fallback, error);
+  const detail = error instanceof Error ? error.message : String(error);
+  const isDevelopment = process.env.NODE_ENV !== "production";
+  return NextResponse.json(
+    { error: isDevelopment ? `${fallback}: ${detail}` : fallback },
+    { status: 503 },
+  );
+}
+
 function getClientIp(headerValue: string | null) {
   const candidate = headerValue?.split(",")[0]?.trim() || null;
   return candidate && isIP(candidate) ? candidate : null;
@@ -37,7 +47,6 @@ export async function POST(request: Request) {
     await createSession(user.id);
     return NextResponse.json({ candidate: candidate.rows[0] ?? null });
   } catch (error) {
-    console.error("login failed", error);
-    return NextResponse.json({ error: "Could not sign in. Check your database configuration." }, { status: 503 });
+    return serverAuthError(error, "Login failed");
   }
 }
