@@ -107,27 +107,50 @@ The realtime layer, interview policy, evaluation, and storage boundaries are int
 
 ## Local setup
 
-Requirements: Node.js 22+, pnpm 10+, PostgreSQL 17+, and Docker for the local infrastructure.
+Requirements: Node.js 22+, pnpm 10+, and Docker Desktop. PostgreSQL and Redis run through Docker Compose, so you do not need to install or start them manually.
 
-```bash
-git clone https://github.com/HarshKumarPathak/Interview-Platform.git
-cd Interview-Platform
+### Windows PowerShell
+
+Run these commands from the repository root:
+
+```powershell
 pnpm install
-cp .env.example .env.local
+pnpm env:setup
 docker compose up -d
-```
-
-Apply the SQL files in `packages/database/schema.sql` and `packages/database/migrations/` to the configured PostgreSQL database, then start the web application:
-
-```bash
+pnpm db:migrate
 pnpm dev
 ```
 
-Run the background evaluator separately:
+Then open http://localhost:3000/login.
 
-```bash
-pnpm --filter @interview-platform/evaluation-worker start
+`pnpm env:setup` creates a local `.env` from `.env.example` when needed, generates real random values for `AUTH_SECRET` and `EVALUATION_WORKER_SECRET`, and synchronizes the environment to `apps/web/.env.local`. Both files are ignored by Git. Next.js supports local environment files for development. citeturn5search0turn5search3
+
+`pnpm db:migrate` applies `packages/database/schema.sql` followed by every numbered migration in order. The SQL is intentionally idempotent, so it is safe to run again after a failed or repeated setup. The runner also uses a PostgreSQL advisory lock so concurrent migration processes do not modify the schema at the same time.
+
+If Docker is stopped later, restart the local infrastructure with:
+
+```powershell
+docker compose up -d
+docker compose ps
 ```
+
+The expected services are PostgreSQL on port 5432 and Redis on port 6379.
+
+### Authentication diagnostics
+
+Registration and login errors are logged on the server. In development, the API returns the underlying error message as well, so errors such as `ECONNREFUSED`, PostgreSQL authentication failures, missing tables, or an invalid `AUTH_SECRET` are directly actionable. Production responses remain generic.
+
+LiveKit, OpenAI, S3/R2, Anam, and Sentry variables are optional during authentication development. Leaving them empty does not block account creation, login, or logout.
+
+### Authentication smoke test
+
+With PostgreSQL running, the schema migrated, and the web server running, run:
+
+```powershell
+node --test tests/auth-e2e.test.mjs
+```
+
+The test creates a unique temporary candidate account, verifies the authenticated dashboard, logs out, verifies the unauthenticated dashboard, signs back in, and verifies the authenticated dashboard again.
 
 ## Production configuration
 
@@ -145,14 +168,22 @@ If object storage credentials are absent, resume upload and recording storage ar
 
 ## Database lifecycle
 
-The current schema includes interview status transitions, recording lifecycle fields, and durable evaluation jobs. Apply migrations in order:
+The supported migration command is:
 
-```text
-packages/database/migrations/001_interview_recordings.sql
-packages/database/migrations/002_evaluation_jobs.sql
+```powershell
+pnpm db:migrate
 ```
 
-The evaluation queue is durable: jobs are claimed with PostgreSQL row locking, retried with delayed availability, and marked failed after the configured attempt limit.
+It applies these files in order:
+
+```text
+packages/database/schema.sql
+packages/database/migrations/001_interview_recordings.sql
+packages/database/migrations/002_evaluation_jobs.sql
+packages/database/migrations/003_auth_activity.sql
+```
+
+All four inputs are safe to re-run. The base schema handles existing PostgreSQL enum types safely, while migrations use `IF NOT EXISTS` / guarded alterations for repeatable local setup.
 
 ## Realtime interview flow
 
