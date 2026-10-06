@@ -123,7 +123,7 @@ pnpm dev
 
 Then open http://localhost:3000/login.
 
-`pnpm env:setup` creates a local `.env` from `.env.example` when needed, generates real random values for `AUTH_SECRET` and `EVALUATION_WORKER_SECRET`, and synchronizes the environment to `apps/web/.env.local`. Both files are ignored by Git. Next.js supports local environment files for development. citeturn5search0turn5search3
+`pnpm env:setup` creates a local `.env` from `.env.example` when needed, generates real random values for `AUTH_SECRET` and `EVALUATION_WORKER_SECRET`, and synchronizes the environment to `apps/web/.env.local`. Both files are ignored by Git. Next.js supports local environment files for development.
 
 `pnpm db:migrate` applies `packages/database/schema.sql` followed by every numbered migration in order. The SQL is intentionally idempotent, so it is safe to run again after a failed or repeated setup. The runner also uses a PostgreSQL advisory lock so concurrent migration processes do not modify the schema at the same time.
 
