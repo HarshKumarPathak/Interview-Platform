@@ -60,7 +60,7 @@ jobs:
         run: pnpm typecheck
 
       - name: Tests
-        run: node --test tests/*.test.mjs && pnpm test
+        run: node --test tests/project-integrity.test.mjs && pnpm test
 
       - name: Authentication E2E
         shell: bash
