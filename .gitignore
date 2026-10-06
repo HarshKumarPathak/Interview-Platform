@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 .pnpm-store/
+.pnpm-debug.log
 
 # Build output
 .next/
@@ -24,8 +25,9 @@ venv/
 !.env.example
 
 # IDE / OS
-.vscode/
-.idea/
+.vscode/*
+!.vscode/tasks.json
+!.vscode/launch.json
 .DS_Store
 Thumbs.db
 
@@ -35,3 +37,4 @@ logs/
 
 # Local infrastructure
 *.pid
+.dev-pids.json
