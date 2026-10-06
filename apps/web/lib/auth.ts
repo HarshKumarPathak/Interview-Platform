@@ -8,7 +8,9 @@ const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 
 function secret() {
   const value = process.env.AUTH_SECRET;
-  if (!value || value.length < 32) throw new Error("AUTH_SECRET must be configured with at least 32 characters");
+  if (!value || value.length < 32 || /^replace-with-/i.test(value)) {
+    throw new Error("AUTH_SECRET is missing or still uses the placeholder value. Run 'pnpm env:setup' and restart the web app.");
+  }
   return value;
 }
 
