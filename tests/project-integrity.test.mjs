@@ -19,6 +19,9 @@ const files = [
   "packages/database/migrations/001_interview_recordings.sql",
   "packages/database/migrations/002_evaluation_jobs.sql",
   "packages/database/migrations/003_auth_activity.sql",
+  "packages/database/scripts/migrate.mjs",
+  "scripts/setup-env.mjs",
+  "tests/auth-e2e.test.mjs",
   "docs/INTERVIEW_ROOM_V2.md",
 ];
 
@@ -112,4 +115,24 @@ test("README reflects completed core scope", async () => {
   assert.match(readme, /asynchronous evaluation jobs/);
   assert.match(readme, /LiveKit room recording/);
   assert.doesNotMatch(readme, /session recording.*planned/i);
+});
+
+test("local database and environment setup are wired", async () => {
+  const rootPackage = await readFile("package.json", "utf8");
+  const databasePackage = await readFile("packages/database/package.json", "utf8");
+  const schema = await readFile("packages/database/schema.sql", "utf8");
+  const envExample = await readFile(".env.example", "utf8");
+  const setup = await readFile("scripts/setup-env.mjs", "utf8");
+  const migration = await readFile("packages/database/scripts/migrate.mjs", "utf8");
+  assert.match(rootPackage, /"env:setup"/);
+  assert.match(rootPackage, /"db:migrate"/);
+  assert.match(databasePackage, /"db:migrate"/);
+  assert.match(schema, /duplicate_object/i);
+  assert.match(migration, /schema\.sql/);
+  assert.match(migration, /migrations/);
+  assert.match(migration, /pg_advisory_lock/);
+  assert.match(envExample, /DATABASE_URL=postgresql:\/\/postgres:postgres@localhost:5432\/interview_platform/);
+  assert.match(envExample, /AUTH_SECRET=replace-with-/);
+  assert.match(setup, /randomBytes/);
+  assert.match(setup, /apps.*web.*\.env\.local/);
 });
