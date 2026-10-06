@@ -14,13 +14,13 @@ function randomSecret(bytes) {
 }
 
 function readValue(text, key) {
-  return text.match(new RegExp(`^\\s*${key}=(.*)$`, "m"))?.[1]?.trim() ?? "";
+  return text.match(new RegExp(\`^\\\\s*\${key}=(.*)$\`, "m"))?.[1]?.trim() ?? "";
 }
 
 function replaceOrAppend(text, key, value) {
-  const pattern = new RegExp(`^\\s*${key}=.*$`, "m");
-  const line = `${key}=${value}`;
-  return pattern.test(text) ? text.replace(pattern, line) : `${text.trimEnd()}\\n${line}\\n`;
+  const pattern = new RegExp(\`^\\\\s*\${key}=.*$\`, "m");
+  const line = \`\${key}=\${value}\`;
+  return pattern.test(text) ? text.replace(pattern, line) : \`\${text.trimEnd()}\\n\${line}\\n\`;
 }
 
 if (!existsSync(envPath)) {
