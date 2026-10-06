@@ -4,8 +4,19 @@
 
 create extension if not exists pgcrypto;
 
-create type interview_status as enum ('draft', 'ready', 'in_progress', 'completed', 'evaluating', 'evaluated', 'failed');
-create type difficulty_level as enum ('easy', 'adaptive', 'hard');
+do $
+begin
+  create type interview_status as enum ('draft', 'ready', 'in_progress', 'completed', 'evaluating', 'evaluated', 'failed');
+exception
+  when duplicate_object then null;
+end $;
+
+do $
+begin
+  create type difficulty_level as enum ('easy', 'adaptive', 'hard');
+exception
+  when duplicate_object then null;
+end $;
 
 create table if not exists users (
   id uuid primary key default gen_random_uuid(),
