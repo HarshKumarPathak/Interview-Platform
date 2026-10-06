@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { isIP } from "node:net";
 import { NextResponse } from "next/server";
 import { query } from "@interview-platform/database";
-import { createSession, verifyPassword } from "../../../../lib/auth";
+import { createSession, validateAuthConfig, verifyPassword } from "../../../../lib/auth";
 
 function serverAuthError(error: unknown, fallback: string) {
   console.error(fallback, error);
@@ -21,6 +21,7 @@ function getClientIp(headerValue: string | null) {
 
 export async function POST(request: Request) {
   try {
+    validateAuthConfig();
     const body = await request.json();
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
