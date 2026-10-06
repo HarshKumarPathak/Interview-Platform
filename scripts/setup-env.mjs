@@ -14,13 +14,19 @@ function randomSecret(bytes) {
 }
 
 function readValue(text, key) {
-  return text.match(new RegExp(\`^\\\\s*\${key}=(.*)$\`, "m"))?.[1]?.trim() ?? "";
+  const line = text.split(/\r?\n/).find((entry) => entry.startsWith(`${key}=`));
+  return line ? line.slice(key.length + 1).trim() : "";
 }
 
 function replaceOrAppend(text, key, value) {
-  const pattern = new RegExp(\`^\\\\s*\${key}=.*$\`, "m");
-  const line = \`\${key}=\${value}\`;
-  return pattern.test(text) ? text.replace(pattern, line) : \`\${text.trimEnd()}\\n\${line}\\n\`;
+  const lines = text.split(/\r?\n/);
+  const index = lines.findIndex((entry) => entry.startsWith(`${key}=`));
+  const line = `${key}=${value}`;
+  if (index >= 0) {
+    lines[index] = line;
+    return lines.join("\n");
+  }
+  return `${text.trimEnd()}\n${line}\n`;
 }
 
 if (!existsSync(envPath)) {
@@ -39,8 +45,7 @@ if (!workerSecret || workerSecret.length < 32 || /^replace-with-/i.test(workerSe
   env = replaceOrAppend(env, "EVALUATION_WORKER_SECRET", randomSecret(64));
 }
 
-const databaseUrl = readValue(env, "DATABASE_URL");
-if (!databaseUrl) {
+if (!readValue(env, "DATABASE_URL")) {
   env = replaceOrAppend(env, "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/interview_platform");
 }
 
