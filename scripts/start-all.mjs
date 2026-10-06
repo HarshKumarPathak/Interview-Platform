@@ -166,7 +166,7 @@ function spawnDev(label, commandName, args, cwd = root) {
     cwd,
     stdio: "inherit",
     windowsHide: false,
-    shell: false,
+    shell: isWindows,
     env: { ...process.env },
   });
   console.log(`[start:all] Started ${label} (PID ${child.pid}).`);
