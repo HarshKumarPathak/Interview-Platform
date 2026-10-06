@@ -10,6 +10,9 @@
   },
   "scripts": {
     "dev": "pnpm --filter @interview-platform/web dev",
+    "start:all": "node scripts/start-all.mjs",
+    "run-project": "node scripts/start-all.mjs",
+    "stop:all": "node scripts/stop-all.mjs",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
