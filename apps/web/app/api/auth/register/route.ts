@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { query } from "@interview-platform/database";
-import { createSession, hashPassword } from "../../../../lib/auth";
+import { createSession, hashPassword, validateAuthConfig } from "../../../../lib/auth";
 
 function serverAuthError(error: unknown, fallback: string) {
   console.error(fallback, error);
@@ -14,6 +14,7 @@ function serverAuthError(error: unknown, fallback: string) {
 
 export async function POST(request: Request) {
   try {
+    validateAuthConfig();
     const body = await request.json();
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
