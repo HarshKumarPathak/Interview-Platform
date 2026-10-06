@@ -6,12 +6,16 @@ const scrypt = promisify(nodeScrypt);
 const SESSION_COOKIE = "interview_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 
-function secret() {
+export function validateAuthConfig() {
   const value = process.env.AUTH_SECRET;
   if (!value || value.length < 32 || /^replace-with-/i.test(value)) {
     throw new Error("AUTH_SECRET is missing or still uses the placeholder value. Run 'pnpm env:setup' and restart the web app.");
   }
   return value;
+}
+
+function secret() {
+  return validateAuthConfig();
 }
 
 export async function hashPassword(password: string) {
