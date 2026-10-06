@@ -1,0 +1,27 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Interview Platform: Start All",
+      "type": "shell",
+      "command": "pnpm start:all",
+      "options": { "cwd": "${workspaceFolder}" },
+      "isDefault": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Interview Platform: Start All Services",
+      "type": "shell",
+      "command": "pnpm start:all -- --all-services",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Interview Platform: Stop",
+      "type": "shell",
+      "command": "pnpm stop:all",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    }
+  ]
+}
