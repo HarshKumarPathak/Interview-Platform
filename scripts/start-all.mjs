@@ -55,7 +55,7 @@ async function checkPrerequisites() {
 
   await requireCommand(pnpm, ["--version"], "pnpm 10+ is required. Install pnpm with 'corepack enable' or update your pnpm installation.");
   const pnpmVersionOutput = (await command([pnpm, "--version"])).stdout;
-  const pnpmVersionMatch = String(pnpmVersionOutput).match(/(?:^|\\s)v?(\\d+)\\.(\\d+)/);
+  const pnpmVersionMatch = String(pnpmVersionOutput).match(/(?:^|\s)v?(\d+)\.(\d+)/);
   const pnpmVersion = pnpmVersionMatch ? `${pnpmVersionMatch[1]}.${pnpmVersionMatch[2]}` : "";
   if (!versionAtLeast(pnpmVersion, 10)) {
     fail(`pnpm 10+ is required. Detected ${String(pnpmVersionOutput).trim() || "an unknown version"}.`);
