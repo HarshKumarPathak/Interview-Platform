@@ -54,8 +54,12 @@ async function checkPrerequisites() {
   if (!nodeOk) fail(`Node.js 22+ is required. Detected ${process.version}. Install/update Node.js and retry.`);
 
   await requireCommand(pnpm, ["--version"], "pnpm 10+ is required. Install pnpm with 'corepack enable' or update your pnpm installation.");
-  const pnpmVersion = (await command([pnpm, "--version"])).stdout.trim();
-  if (!versionAtLeast(pnpmVersion, 10)) fail(`pnpm 10+ is required. Detected ${pnpmVersion}.`);
+  const pnpmVersionOutput = (await command([pnpm, "--version"])).stdout;
+  const pnpmVersionMatch = String(pnpmVersionOutput).match(/(?:^|\\s)v?(\\d+)\\.(\\d+)/);
+  const pnpmVersion = pnpmVersionMatch ? `${pnpmVersionMatch[1]}.${pnpmVersionMatch[2]}` : "";
+  if (!versionAtLeast(pnpmVersion, 10)) {
+    fail(`pnpm 10+ is required. Detected ${String(pnpmVersionOutput).trim() || "an unknown version"}.`);
+  }
 
   await requireCommand(docker, ["compose", "version"], "Docker Desktop with Docker Compose is required. Start Docker Desktop and retry.");
   try {
